@@ -88,6 +88,7 @@ class Model(nn.Module):
         if mixing and self.style_mixing_prob is not None:
             if random.random() < self.style_mixing_prob:
                 z2 = torch.randn(count, self.latent_size)
+                z2 = z2.to(device)
                 styles2 = self.mapping_f(z2)[:, 0]
                 styles2 = styles2.view(styles2.shape[0], 1, styles2.shape[1]).repeat(1, self.mapping_f.num_layers, 1)
 
@@ -175,8 +176,8 @@ if __name__ == "__main__":
     image_tensor = torch.load(file_path)
     image_tensor = image_tensor.unsqueeze(0).repeat(3,1,1).unsqueeze(0)#repeat(3,1,1)
     image_tensor.requires_grad = True
-    loss_d = model(x=image_tensor, lod=2, blend_factor=1, d_train=True, ae=False)
-    loss_g = model(x=image_tensor, lod=2, blend_factor=1, d_train=False, ae=False)
-    loss_lae = model(x=image_tensor, lod=2, blend_factor=1, d_train=False, ae=True)
-    #result = model.generate(lod=2, blend_factor=1)
+    #loss_d = model(x=image_tensor, lod=2, blend_factor=1, d_train=True, ae=False)
+    #loss_g = model(x=image_tensor, lod=2, blend_factor=1, d_train=False, ae=False)
+    #loss_lae = model(x=image_tensor, lod=2, blend_factor=1, d_train=False, ae=True)
+    result = model.generate(lod=2, blend_factor=1)
     print(loss_d, loss_g, loss_lae)

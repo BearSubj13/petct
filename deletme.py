@@ -113,7 +113,10 @@ def add_files_to_dataset(dcm_files_path, dataset_path):
 
 if __name__ == "__main__":
     #path_dcm = "/ayb/vol3/datasets/pet-ct/part01/70000981/70004014"
-    path_dcm = "/ayb/vol3/datasets/pet-ct/part01/20000060/70004030"
+    #path_dcm = "/ayb/vol3/datasets/pet-ct/part01/20000060/70004030"
+    #path_dcm = "/ayb/vol3/datasets/pet-ct/part01/70001008/70004169"
+    #path_dcm = "/ayb/vol3/datasets/pet-ct/part01/990002892/70004198"
+    path_dcm = "/ayb/vol3/datasets/pet-ct/part01/990004814/70004155"
     dataset_path = "/ayb/vol1/kruzhilov/lungs_images/"
     add_files_to_dataset(path_dcm, dataset_path)
 
