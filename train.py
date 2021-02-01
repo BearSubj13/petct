@@ -69,16 +69,17 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, decoder_optimizer, 
 
 if __name__ == "__main__":
     dataset_path = "/ayb/vol1/kruzhilov/lungs_images/"
-    lung_dataset = CTDataset(dataset_path, resolution=2**4)
-    #print(len(lung_dataset))
+    resolution_power = 6
+    lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
+    print('dataset size:', len(lung_dataset))
     #exit()
-    batch_size = 64
+    batch_size = 300
     lungs_data_loader = DataLoader(dataset=lung_dataset, shuffle=False, batch_size=batch_size, num_workers=2)
-    device = "cuda:2"
+    device = "cuda:1"
 
-    model = Model(channels=1, device=device)
+    model = Model(channels=1, device=device, layer_count=5)
     model = model.to(device)
-    #model.load_state_dict(torch.load('model.pth'))
+    model.load_state_dict(torch.load('weights/model32_5layers.pth'))
 
     decoder = model.decoder
     encoder = model.encoder
@@ -96,14 +97,21 @@ if __name__ == "__main__":
     ], lr=0.001, weight_decay=0)
 
 
-    for epoch in range(200):
-        current_lod = 2
-        current_blend_factor = min(1, 0.1 + epoch*0.1)
+    current_lod = resolution_power - 2
+    save_model_path = 'weights/model__5layers.pth'
+
+    for epoch in range(300):
+        current_blend_factor = min(1, 0.5 + epoch*0.1)
+        if epoch > 0:
+            old_d, old_g, old_lae = mean_loss_d, mean_loss_g, mean_loss_lae
         mean_loss_d, mean_loss_g, mean_loss_lae = \
             train_epoch(model, lungs_data_loader, encoder_optimizer, decoder_optimizer, \
                  current_lod=current_lod, blend_factor=current_blend_factor)       
         print(epoch, mean_loss_d, mean_loss_g, mean_loss_lae)
-        #torch.save(model.state_dict(), 'model.pth')    
+        # if epoch > 0 and mean_loss_d > 5 * old_d:
+        #     model.load_state_dict(torch.load(save_model_path))
+        #     continue
+        torch.save(model.state_dict(), save_model_path)    
     # image = model.generate(lod=2, blend_factor=1, device=model.device)
     # image = image[0, 0, :, :].detach().cpu().numpy()
     # plt.imshow(image, cmap=plt.cm.gray)
