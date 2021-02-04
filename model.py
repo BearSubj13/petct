@@ -77,9 +77,9 @@ class Model(nn.Module):
         mixing=True
         noise=True
 
-        styles = self.encode(x, lod, blend_factor)[0]
-        s = styles.repeat(self.mapping_f.num_layers+1, 1, 1)
-        #s = styles.view(styles.shape[0], 1, styles.shape[0])
+        styles = self.encode(x, lod, blend_factor)[0].squeeze(1)
+        #s = style.repeat(self.mapping_f.num_layers+1, 1, 1)
+        s = styles.view(styles.shape[0], 1, styles.shape[1])
 
         styles = s.repeat(1, self.mapping_f.num_layers, 1)
 
@@ -152,9 +152,11 @@ class Model(nn.Module):
         discriminator_prediction = self.mapping_d(Z)
         return Z[:, :1], discriminator_prediction
 
-    def forward(self, x, lod, blend_factor, d_train, ae, r1_gamma=10):
+    def forward(self, x, lod, blend_factor, d_train, ae, r1_gamma=10, freeze_previous_layers=False):
+        self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
         if ae:
             self.encoder.requires_grad_(True)
+            self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
 
             z = torch.randn(x.shape[0], self.latent_size)
             z = z.to(self.device)
@@ -172,10 +174,9 @@ class Model(nn.Module):
             return Lae
 
         elif d_train:
+            self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
             with torch.no_grad():
                 Xp = self.generate(lod, blend_factor, count=x.shape[0], noise=True, device=self.device)
-
-            self.encoder.requires_grad_(True)
 
             _, d_result_real = self.encode(x, lod, blend_factor)
 
@@ -189,6 +190,7 @@ class Model(nn.Module):
                 z = z.to(self.device)
 
             self.encoder.requires_grad_(False)
+            self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
 
             rec = self.generate(lod, blend_factor, count=x.shape[0], z=z.detach(), noise=True, device=self.device)
 
@@ -206,6 +208,28 @@ class Model(nn.Module):
             other_param = list(other.mapping_d.parameters()) + list(other.mapping_f.parameters()) + list(other.decoder.parameters()) + list(other.encoder.parameters()) + list(other.dlatent_avg.parameters())
             for p, p_other in zip(params, other_param):
                 p.data.lerp_(p_other.data, 1.0 - betta)
+
+    def freeze_layers(self, lod, freeze=True):
+        """
+        lod: int - layers to freeze,
+        freeze: boolean - True freeze layers, False - unfreeze
+        return:
+        """
+        if freeze is None:
+            return None
+        require_grad = not freeze
+        for i in range(self.layer_count - lod - 1, self.layer_count):
+            for param in self.encoder.encode_block[i].parameters():
+                param.requires_grad = require_grad          
+            for param in self.encoder.from_rgb[i].parameters():
+                param.requires_grad = require_grad
+
+        self.decoder.const.requires_grad = require_grad 
+        for i in range(lod + 1):
+            for param in self.decoder.decode_block[i].parameters():
+                param.requires_grad = require_grad
+            for param in self.decoder.to_rgb[i].parameters():
+                param.requires_grad = require_grad
 
 
 if __name__ == "__main__":
