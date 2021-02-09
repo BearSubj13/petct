@@ -209,7 +209,7 @@ class Model(nn.Module):
             for p, p_other in zip(params, other_param):
                 p.data.lerp_(p_other.data, 1.0 - betta)
 
-    def freeze_layers(self, lod, freeze=True):
+    def freeze_layers(self, lod, lod_start=0, freeze=True):
         """
         lod: int - layers to freeze,
         freeze: boolean - True freeze layers, False - unfreeze
@@ -218,14 +218,14 @@ class Model(nn.Module):
         if freeze is None:
             return None
         require_grad = not freeze
-        for i in range(self.layer_count - lod - 1, self.layer_count):
+        for i in range(self.layer_count - lod - 1, self.layer_count - lod_start):
             for param in self.encoder.encode_block[i].parameters():
                 param.requires_grad = require_grad          
             for param in self.encoder.from_rgb[i].parameters():
                 param.requires_grad = require_grad
 
         self.decoder.const.requires_grad = require_grad 
-        for i in range(lod + 1):
+        for i in range(lod_start, lod + 1):
             for param in self.decoder.decode_block[i].parameters():
                 param.requires_grad = require_grad
             for param in self.decoder.to_rgb[i].parameters():
