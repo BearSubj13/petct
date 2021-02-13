@@ -78,7 +78,7 @@ class Model(nn.Module):
         noise=True
 
         styles = self.encode(x, lod, blend_factor)[0].squeeze(1)
-        #s = style.repeat(self.mapping_f.num_layers+1, 1, 1)
+        old_style_format = styles
         s = styles.view(styles.shape[0], 1, styles.shape[1])
 
         styles = s.repeat(1, self.mapping_f.num_layers, 1)
@@ -107,7 +107,7 @@ class Model(nn.Module):
             styles = torch.lerp(self.dlatent_avg.buff.data, styles, coefs)
 
         rec = self.decoder.forward(styles, lod, blend_factor, noise)
-        return rec
+        return rec, old_style_format
        
     def generate(self, lod, blend_factor, z=None, count=32, mixing=True, noise=True, return_styles=False, no_truncation=False, device="cpu"):
         if z is None:
@@ -147,58 +147,100 @@ class Model(nn.Module):
         else:
             return rec
 
-    def encode(self, x, lod, blend_factor):
+    def encode(self, x, lod, blend_factor):        
         Z = self.encoder(x, lod, blend_factor)
         discriminator_prediction = self.mapping_d(Z)
         return Z[:, :1], discriminator_prediction
 
+    def ae_mode(self, x, lod, blend_factor, freeze_previous_layers):
+        self.encoder.requires_grad_(True)
+        self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
+
+        z = torch.randn(x.shape[0], self.latent_size)
+        z = z.to(self.device)
+        s, rec = self.generate(lod, blend_factor, z=z, mixing=False, noise=True, return_styles=True, device=self.device)
+
+        Z, d_result_real = self.encode(rec, lod, blend_factor)
+
+        assert Z.shape == s.shape
+
+        if self.z_regression:
+            Lae = torch.mean(((Z[:, 0] - z)**2))
+        else:
+            Lae = torch.mean(((Z - s.detach())**2))
+
+        return Lae
+
+    def d_mode(self, x, lod, blend_factor, r1_gamma, freeze_previous_layers):
+        self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
+        with torch.no_grad():
+            Xp = self.generate(lod, blend_factor, count=x.shape[0], noise=True, device=self.device)
+
+        _, d_result_real = self.encode(x, lod, blend_factor)
+
+        _, d_result_fake = self.encode(Xp, lod, blend_factor)
+
+        loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x, r1_gamma=r1_gamma)
+        return loss_d
+
+    #discriminator for latent = Encoder(Generator(Encoder(image_real)))
+    def autoencoder_discriminator(self, x, lod, blend_factor, r1_gamma, freeze_previous_layers=None):
+        """
+        discriminator for latent = Encoder(Generator(Encoder(image_real)))
+        """
+        self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
+        with torch.no_grad():
+           Xp, _ = self.autoencoder(x, lod)
+
+        _, d_result_real = self.encode(x, lod, blend_factor)
+
+        _, d_result_fake = self.encode(Xp, lod, blend_factor)
+
+        loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x, r1_gamma=r1_gamma)
+        return loss_d
+
+    def g_mode(self, x, lod, blend_factor, freeze_previous_layers):
+        with torch.no_grad():
+            z = torch.randn(x.shape[0], self.latent_size)
+            z = z.to(self.device)
+
+        self.encoder.requires_grad_(False)
+        self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
+
+        rec = self.generate(lod, blend_factor, count=x.shape[0], z=z.detach(), noise=True, device=self.device)
+
+        _, d_result_fake = self.encode(rec, lod, blend_factor)
+
+        loss_g = losses.generator_logistic_non_saturating(d_result_fake)
+
+        return loss_g
+
     def forward(self, x, lod, blend_factor, d_train, ae, r1_gamma=10, freeze_previous_layers=False):
         self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
         if ae:
-            self.encoder.requires_grad_(True)
-            self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
-
-            z = torch.randn(x.shape[0], self.latent_size)
-            z = z.to(self.device)
-            s, rec = self.generate(lod, blend_factor, z=z, mixing=False, noise=True, return_styles=True, device=self.device)
-
-            Z, d_result_real = self.encode(rec, lod, blend_factor)
-
-            assert Z.shape == s.shape
-
-            if self.z_regression:
-                Lae = torch.mean(((Z[:, 0] - z)**2))
-            else:
-                Lae = torch.mean(((Z - s.detach())**2))
-
+            Lae = self.ae_mode(x, lod, blend_factor, freeze_previous_layers)
             return Lae
-
         elif d_train:
-            self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
-            with torch.no_grad():
-                Xp = self.generate(lod, blend_factor, count=x.shape[0], noise=True, device=self.device)
-
-            _, d_result_real = self.encode(x, lod, blend_factor)
-
-            _, d_result_fake = self.encode(Xp, lod, blend_factor)
-
-            loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x, r1_gamma=r1_gamma)
+            loss_d = self.d_mode(x, lod, blend_factor, r1_gamma, freeze_previous_layers)
             return loss_d
         else:
-            with torch.no_grad():
-                z = torch.randn(x.shape[0], self.latent_size)
-                z = z.to(self.device)
-
-            self.encoder.requires_grad_(False)
-            self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
-
-            rec = self.generate(lod, blend_factor, count=x.shape[0], z=z.detach(), noise=True, device=self.device)
-
-            _, d_result_fake = self.encode(rec, lod, blend_factor)
-
-            loss_g = losses.generator_logistic_non_saturating(d_result_fake)
-
+            loss_g = self.g_mode(x, lod, blend_factor, freeze_previous_layers)
             return loss_g
+
+
+    def reciprocity(self, x, lod, blend_factor, loss, freeze_previous_layers=False):
+        self.encoder.requires_grad_(True)
+        self.freeze_layers(lod, freeze=freeze_previous_layers)
+        reconstructed_image, styles = self.autoencoder(x, lod)
+        image_reconstruction_loss = loss(reconstructed_image, x)
+        with torch.no_grad():
+            styles_reconstruction, loss_g = self.encode(reconstructed_image, lod, blend_factor)#[0]
+            styles_reconstruction = styles_reconstruction.squeeze(1)
+        loss_g = losses.generator_logistic_non_saturating(loss_g)
+        latent_reconstruction_loss = loss(styles, styles_reconstruction)
+        return image_reconstruction_loss, latent_reconstruction_loss, loss_g
+        
+
 
     def lerp(self, other, betta):
         if hasattr(other, 'module'):
