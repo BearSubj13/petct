@@ -152,7 +152,7 @@ class Model(nn.Module):
         discriminator_prediction = self.mapping_d(Z)
         return Z[:, :1], discriminator_prediction
 
-    def ae_mode(self, x, lod, blend_factor, freeze_previous_layers):
+    def ae_mode(self, x, lod, blend_factor, freeze_previous_layers=None):
         self.encoder.requires_grad_(True)
         self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
 
@@ -171,7 +171,7 @@ class Model(nn.Module):
 
         return Lae
 
-    def d_mode(self, x, lod, blend_factor, r1_gamma, freeze_previous_layers):
+    def d_mode(self, x, lod, blend_factor, r1_gamma, freeze_previous_layers=None):
         self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
         with torch.no_grad():
             Xp = self.generate(lod, blend_factor, count=x.shape[0], noise=True, device=self.device)
@@ -199,7 +199,7 @@ class Model(nn.Module):
         loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x, r1_gamma=r1_gamma)
         return loss_d
 
-    def g_mode(self, x, lod, blend_factor, freeze_previous_layers):
+    def g_mode(self, x, lod, blend_factor, freeze_previous_layers=None):
         with torch.no_grad():
             z = torch.randn(x.shape[0], self.latent_size)
             z = z.to(self.device)
@@ -215,7 +215,7 @@ class Model(nn.Module):
 
         return loss_g
 
-    def forward(self, x, lod, blend_factor, d_train, ae, r1_gamma=10, freeze_previous_layers=False):
+    def forward(self, x, lod, blend_factor, d_train, ae, r1_gamma=10, freeze_previous_layers=None):
         self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
         if ae:
             Lae = self.ae_mode(x, lod, blend_factor, freeze_previous_layers)
@@ -227,8 +227,7 @@ class Model(nn.Module):
             loss_g = self.g_mode(x, lod, blend_factor, freeze_previous_layers)
             return loss_g
 
-
-    def reciprocity(self, x, lod, blend_factor, loss, freeze_previous_layers=False):
+    def reciprocity(self, x, lod, blend_factor, loss, freeze_previous_layers=None):
         self.encoder.requires_grad_(True)
         self.freeze_layers(lod, freeze=freeze_previous_layers)
         reconstructed_image, styles = self.autoencoder(x, lod)
@@ -240,6 +239,26 @@ class Model(nn.Module):
         latent_reconstruction_loss = loss(styles, styles_reconstruction)
         return image_reconstruction_loss, latent_reconstruction_loss, loss_g
         
+    def border_penalty(self, x, lod, blend_factor, freeze_previous_layers=None):
+       """
+       the min and max values of the generated image should be 0 and 1
+       """
+       with torch.no_grad():
+            z = torch.randn(x.shape[0], self.latent_size)
+            z = z.to(self.device)
+
+       self.encoder.requires_grad_(False)
+       self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
+
+       rec = self.generate(lod, blend_factor, count=x.shape[0], z=z.detach(), noise=True, device=self.device)
+       rec = rec.squeeze(1)
+       loss_0 = rec.view(-1,rec.shape[-1]*rec.shape[-2]).min(axis=1)[0]
+       loss_1 = rec.view(-1,rec.shape[-1]*rec.shape[-2]).max(axis=1)[0] - 1
+       print(loss_1)
+       loss = (loss_0**2 + loss_1**2).mean() / 2
+       #loss = torch.sum(loss**2) / torch.numel(rec)
+       return loss
+
 
 
     def lerp(self, other, betta):

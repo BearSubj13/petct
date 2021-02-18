@@ -19,8 +19,6 @@ def image_normalization(image):
 if __name__ == "__main__":
     resolution_power = 2
     dataset_path = "/ayb/vol1/kruzhilov/lungs_images_val"
-    #lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
-    #print(len(lung_dataset))
     device = "cpu"# "cuda:2"
     generate_mode = True
     model_path = 'weights/model4_5layers.pth'
@@ -36,14 +34,18 @@ if __name__ == "__main__":
         image = image[0, 0, :, :].detach().cpu().numpy()
         print(image.min().item(), image.max().item())
         image = image_normalization(image)
+        fig = plt.figure()
+        plt.axis('off') 
         plt.imshow(image, cmap=plt.cm.gray)
         plt.show()
+        fig.savefig("generated.png", bbox_inches='tight')
     else:
         lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
+        #print(len(lung_dataset))
         item = np.random.randint(len(lung_dataset))
         image = lung_dataset.__getitem__(item)
-        image = image.unsqueeze(0)
-        image = augmentation(image, p_augment=1)
+        image = image.unsqueeze(0)  
+        #image = augmentation(image, p_augment=1)
         image_gen, _ = model.autoencoder(x=image, lod=resolution_power - 2, device=device)
         print(image_gen.min().item(), image_gen.max().item())
         image_gen = image_gen[0,:,:,:].squeeze().detach().numpy()
@@ -51,10 +53,18 @@ if __name__ == "__main__":
 
         image = image.squeeze().detach().numpy()
         print('original image')
+        fig = plt.figure()
+        plt.axis('off') 
         plt.imshow(image, cmap=plt.cm.gray)
         plt.show()
+        fig.savefig("origina.png", bbox_inches='tight')
+
+        fig = plt.figure()
+        plt.axis('off') 
         plt.imshow(image_gen, cmap=plt.cm.gray)
         plt.show()
+        fig.savefig("generated.png", bbox_inches='tight')
+
         error = np.abs(image - image_gen).mean()
         print("error:", error)
 
