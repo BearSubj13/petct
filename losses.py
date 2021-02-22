@@ -25,9 +25,14 @@ def kl(mu, log_var):
     return -0.5 * torch.mean(torch.mean(1 + log_var - mu.pow(2) - log_var.exp(), 1))
 
 
-def reconstruction(recon_x, x, lod=None):
-    return torch.mean((recon_x - x)**2)
+def reconstruction(recon_x, x, lod=None, mse=True):
+        return torch.mean((recon_x - x)**2)
 
+def reconstruction_l1(recon_x, x, lod=None, mse=True):
+        return torch.mean(torch.abs(recon_x - x))
+
+def lasso(recon_x, x, lod=None, l1_coeff=0.1):
+        return l1_coeff*torch.mean(torch.abs(recon_x - x)) + (1 - l1_coeff)*torch.mean((recon_x - x)**2)
 
 def discriminator_logistic_simple_gp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
     loss = (F.softplus(d_result_fake) + F.softplus(-d_result_real))
@@ -36,7 +41,10 @@ def discriminator_logistic_simple_gp(d_result_fake, d_result_real, reals, r1_gam
         real_loss = d_result_real.sum()
         real_grads = torch.autograd.grad(real_loss, reals, create_graph=True, retain_graph=True)[0]
         r1_penalty = torch.sum(real_grads.pow(2.0), dim=[1, 2, 3])
-        loss = loss + r1_penalty * (r1_gamma * 0.5)
+        if not torch.isinf(r1_penalty).any():
+            loss = loss + r1_penalty * (r1_gamma * 0.5)
+        else:
+            print('discriminator gradient is inf!')
     return loss.mean()
 
 

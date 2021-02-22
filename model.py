@@ -227,6 +227,18 @@ class Model(nn.Module):
             loss_g = self.g_mode(x, lod, blend_factor, freeze_previous_layers)
             return loss_g
 
+    def forward(self, x, lod, blend_factor, d_train, ae, r1_gamma=10, freeze_previous_layers=None):
+        self.freeze_layers(lod=lod - 1, freeze=freeze_previous_layers)
+        if ae:
+            Lae = self.ae_mode(x, lod, blend_factor, freeze_previous_layers)
+            return Lae
+        elif d_train:
+            loss_d = self.d_mode(x, lod, blend_factor, r1_gamma, freeze_previous_layers)
+            return loss_d
+        else:
+            loss_g = self.g_mode(x, lod, blend_factor, freeze_previous_layers)
+            return loss_g
+
     def reciprocity(self, x, lod, blend_factor, loss, freeze_previous_layers=None):
         self.encoder.requires_grad_(True)
         self.freeze_layers(lod, freeze=freeze_previous_layers)
@@ -236,8 +248,8 @@ class Model(nn.Module):
             styles_reconstruction, loss_g = self.encode(reconstructed_image, lod, blend_factor)#[0]
             styles_reconstruction = styles_reconstruction.squeeze(1)
         loss_g = losses.generator_logistic_non_saturating(loss_g)
-        latent_reconstruction_loss = loss(styles, styles_reconstruction)
-        return image_reconstruction_loss, latent_reconstruction_loss, loss_g
+        latent_reconstruction_loss = losses.reconstruction(styles, styles_reconstruction)
+        return image_reconstruction_loss, latent_reconstruction_loss, loss_g, reconstructed_image
         
     def border_penalty(self, x, lod, blend_factor, freeze_previous_layers=None):
        """

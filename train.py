@@ -5,8 +5,9 @@ import torch.nn.functional as F
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from losses import reconstruction
+import piq
 
+from losses import reconstruction, reconstruction_l1, lasso
 from model import Model
 
 
@@ -18,6 +19,9 @@ class CTDataset(Dataset):
             file_path = os.path.join(dataset_path, file_name)
             image_tensor = torch.load(file_path)
             image_tensor = image_tensor.unsqueeze(0)#.unsqueeze(0)
+            if torch.isnan(image_tensor).any() or torch.isinf(image_tensor).any():
+                print(file_name)
+                continue
             if resolution:
                image_tensor = F.interpolate(image_tensor, size=resolution)
                image_tensor = image_tensor.permute(0, 2, 1)
@@ -58,8 +62,6 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optim
     loss_g_reconst_list, loss_latent_reconstruction_list = [], []
     loss_boundary_list = []
     for image_tensor in lungs_data_loader:
-        image_tensor = augmentation(image_tensor, p_augment=p_augment)
-
         if blend_factor < 1:
             needed_resolution = image_tensor.shape[1]
             x_prev = F.avg_pool2d(image_tensor, 2, 2)
@@ -79,15 +81,16 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optim
         encoder_optimizer.step()
         discriminator_optimizer.step()
 
+
         #discriminator for latent = Encoder(Generator(Encoder(image_real)))
         #encoder_optimizer.zero_grad()
         discriminator_optimizer.zero_grad()
         loss_d_reconstr = model.autoencoder_discriminator(x=image_tensor, lod=current_lod, \
                                                 blend_factor=blend_factor, r1_gamma=r1_gamma)
         loss_d_reconst_list.append(loss_d_reconstr.item())
-        loss_d_reconstr.backward()
+        #loss_d_reconstr.backward()
         #encoder_optimizer.step()
-        discriminator_optimizer.step()
+        #discriminator_optimizer.step()
 
         #generator
         decoder_optimizer.zero_grad()   
@@ -111,18 +114,11 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optim
         decoder_optimizer.step()
         discriminator_optimizer.step()
 
-        # decoder_optimizer.zero_grad()
-        # loss_boundary = model.border_penalty(x=image_tensor, lod=current_lod, blend_factor=blend_factor, \
-        #                     freeze_previous_layers=freeze_previous_layers)
-        # loss_boundary_list.append(loss_boundary.item())
-        # loss_boundary = boundary * loss_boundary
-        # loss_boundary.backward()
-        # decoder_optimizer.step()
-
         encoder_optimizer.zero_grad()
         decoder_optimizer.zero_grad()
-        loss_image_reconstruction, loss_latent_reconstruction, loss_g_reconstr = \
-            model.reciprocity(x=image_tensor, lod=current_lod, blend_factor=blend_factor, loss=reconstruction, freeze_previous_layers=freeze_previous_layers)
+        loss_image_reconstruction, loss_latent_reconstruction, loss_g_reconstr, _ = \
+            model.reciprocity(x=image_tensor, lod=current_lod, blend_factor=blend_factor, \
+                 loss=reconstruction, freeze_previous_layers=freeze_previous_layers)
         loss_latent_reconstruction_list.append(loss_latent_reconstruction.item())
         loss_image_reconstruction_list.append(loss_image_reconstruction.item())
         loss_g_reconst_list.append(loss_g_reconstr.item())
@@ -130,6 +126,11 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optim
         reconstr_loss.backward()
         encoder_optimizer.step()
         decoder_optimizer.step()
+
+        #print(loss_d.item(), loss_d_reconstr.item(), loss_g.item(), loss_lae.item(), loss_image_reconstruction.item())
+        #if torch.isnan(loss_d):
+        #    print(image_tensor.sum())
+        #    exit()
         
     mean_loss_d = sum(loss_d_list) / len(loss_d_list)
     mean_loss_g = sum(loss_g_list) / len(loss_g_list)
@@ -146,46 +147,103 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optim
     return result
 
 
+def image_normalization(image):
+    image[image < -0.05] = -0.05
+    image[image > 1.05] = 1.05
+    min_pixel_value = image.min(dim=3)[0].min(dim=2)[0]
+    max_pixel_value = image.max(dim=3)[0].max(dim=2)[0]  
+    diff = max_pixel_value - min_pixel_value
+
+    min_pixel_value = min_pixel_value.unsqueeze(2).unsqueeze(3)
+    min_pixel_value = min_pixel_value.repeat(1, 1, image.shape[2], image.shape[3])
+    diff = diff.unsqueeze(2).unsqueeze(3)
+    diff = diff.repeat(1, 1, image.shape[2], image.shape[3])
+    non_zero_diff = diff != 0
+    
+    image[non_zero_diff] = (image[non_zero_diff] - min_pixel_value[non_zero_diff]) / diff[non_zero_diff]
+    image[diff == 0] = 0
+    return image
+
+
+def ssim_metric(image_original, image_reconstructed):
+    size = image_original.shape[-1]
+    if size < 8:
+        return None
+    elif size == 8 or size == 16:
+        kernel_size = 3
+    elif size == 32:
+        kernel_size = 5
+    elif size == 64:
+        kernle_size = 7
+    else:
+        kernel_size = 9
+
+    ssim_loss = piq.SSIMLoss(kernel_size=kernel_size)
+
+    image_reconstructed = image_normalization(image_reconstructed)
+    ssim = ssim_loss(image_original, image_reconstructed)
+    return ssim 
+
+
+def psnr_metric(image_original, image_reconstructed):
+    image_reconstructed = image_reconstructed.squeeze(1) 
+    image_original = image_original.squeeze(1)  
+    mse = torch.mean((image_reconstructed - image_original)**2, dim=[-1, -2])
+    psnr = 100*torch.ones_like(mse).to(image_original.device)
+    psnr[mse > 0] = -10*torch.log10(mse[mse > 0]) 
+    return psnr.mean()
+
 def validation_epoch(model, lungs_data_loader, current_lod):
     model.eval()
-    for image_tensor in lungs_data_loader:
-        image_tensor = image_tensor.to(device)
-        loss_image_reconstruction, loss_latent_reconstruction, loss_g_reconstr = \
-            model.reciprocity(x=image_tensor, lod=current_lod, blend_factor=1, loss=reconstruction)
-        mse = loss_image_reconstruction.item()    
-        if mse > 0:
-            psnr = -10*np.log10(mse)    
-        else:
-            psnr = 100
-    return psnr
+    ssim_list = []
+    psnr_list = []
+
+    with torch.no_grad():
+        for image_tensor in lungs_data_loader:
+            image_tensor = image_tensor.to(device)
+            loss_image_reconstruction, loss_latent_reconstruction,\
+                loss_g_reconstr, image_reconstructed = \
+                model.reciprocity(x=image_tensor, lod=current_lod, blend_factor=1, loss=reconstruction)
+            psnr = psnr_metric(image_tensor, image_reconstructed)
+            psnr_list.append(psnr)
+
+            ssim = ssim_metric(image_tensor, image_reconstructed)
+            ssim_list.append(ssim)
+
+        psnr = sum(psnr_list) / len(psnr_list)
+        ssim = sum(ssim_list) / len(ssim_list)
+    return psnr, ssim
 
 
 if __name__ == "__main__":
     dataset_path = "/ayb/vol1/kruzhilov/lungs_images/"
     dataset_path_val = "/ayb/vol1/kruzhilov/lungs_images_val/"
-    resolution_power = 2
-    load_model_path = None#'weights/model4_5layers.pth'
-    save_model_path = 'weights/model4_5layers.pth'
-    r1_gamma = 50
-    mse_penalty = 0.1
-    weigt_decay = 0.0001
-    p_augment = 0.8
+    resolution_power = 5
+    load_model_path = 'weights/model32_5layers.pth'
+    save_model_path = 'weights/model32_5layers_2.pth'
+    r1_gamma = 70
+    mse_penalty = 0.5
+    weigt_decay = 0.001
     boundary = 0.0
-    batch_size = 200
-    blending_step = 0.05 
-    lr = 0.001 
+    batch_size = 300
+    blending_step = None#0.04    
+    lr = 0.0002
 
     device = "cuda:1"
     print('resolution:', 2**resolution_power)
     print('loaded from:', load_model_path)
     print("batch size:", batch_size)
+    print('lr:', lr)
+    print('r1 gamma:', r1_gamma)
+    print('encoder weight decay:', weigt_decay)
+    print('mse penalty:', mse_penalty)
 
     lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
     lung_dataset_val = CTDataset(dataset_path_val, resolution=2**resolution_power)
     print('train dataset size:', len(lung_dataset), 'validation:', len(lung_dataset_val))
     #exit()
-    lungs_data_loader = DataLoader(dataset=lung_dataset, shuffle=True, batch_size=batch_size, num_workers=2)
-    lungs_data_loader = DataLoader(dataset=lung_dataset_val, shuffle=False, batch_size=batch_size)
+    lungs_data_loader = DataLoader(dataset=lung_dataset, shuffle=True, batch_size=batch_size)
+    lungs_data_loader_val = DataLoader(dataset=lung_dataset_val, shuffle=False, batch_size=batch_size)
 
     model = Model(channels=1, device=device, layer_count=5)
     model = model.to(device)
@@ -213,22 +271,25 @@ if __name__ == "__main__":
 
     current_lod = resolution_power - 2
 
-    for epoch in range(400):
-        current_blend_factor = 1#min(1, 0.01 + epoch*blending_step)
+    for epoch in range(500):
+        if blending_step:
+            current_blend_factor = min(1, 0.01 + epoch*blending_step)
+        else:
+            current_blend_factor = 1
         freeze_previous_layers = None
         loss = train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optimizer, decoder_optimizer, \
                  current_lod=current_lod, blend_factor=current_blend_factor, \
                  freeze_previous_layers=freeze_previous_layers,
-                 lambda_reconstruct=mse_penalty, p_augment=p_augment, boundary=boundary)       
+                 lambda_reconstruct=mse_penalty, boundary=boundary)       
 
-        psnr = validation_epoch(model, lungs_data_loader, current_lod)
+        psnr, ssim = validation_epoch(model, lungs_data_loader, current_lod)
 
-        format_output = "{0:3d}  d:{1:2.5f}, g:{2:2.5f}, lae:{3:2.5f}    lae rec:{4:2.5f}, mse:{5:2.5f}, psnr:{6:3.1f}, d rec:{7:2.5f}". \
+        format_output = "{0:3d}  d:{1:2.5f}, g:{2:2.5f}, lae:{3:2.5f}    lae rec:{4:2.5f}, mse:{5:2.5f},   psnr:{6:3.1f}, ssim:{7:1.5f}". \
             format(epoch, loss['d'], loss['g'], loss['lae'], loss['lae_rec'], \
-                 loss['mse_rec'], psnr, loss['d_rec'])#, loss['boundary'])         
+                 loss['mse_rec'], psnr, ssim)#, loss['boundary'])         
         print(format_output)
 
-        if loss['mse_rec'] < 0.1 and epoch > 10:
+        if loss['mse_rec'] < 0.05 and epoch > 10:
             torch.save(model.state_dict(), save_model_path)
         
 
