@@ -41,6 +41,17 @@ def normalization_window(image, ds):
         return image
 
 
+def image_normalization(ds):
+    arr = ds.pixel_array
+    hu = apply_modality_lut(arr, ds)
+    arr = normalization_window(hu, ds)
+    hu = tr.FloatTensor(hu)
+    if hu.max() - hu.min() == 0:
+        return None
+    hu = (hu - hu.min()) / (hu.max() - hu.min())
+    return hu
+
+
 def dcm_to_image(file_path, resolution=128):
     zd = zstd.ZstdDecompressor()
     compressed = open(file_path, "rb").read()
@@ -85,47 +96,48 @@ def add_files_to_dataset(dcm_files_path, dataset_path):
 
 
 def test_dcm():
-    # fname = "CT.1.2.840.113619.2.290.3.279707939.199.1523331541.887.3.dcm.zst"
-    # #fname = "CT.1.2.840.113619.2.290.3.279707939.199.1523331542.286.780.dcm.zst"
-    # fname = "CT.1.2.840.113619.2.290.3.279707939.199.1523331542.286.571.dcm.zst"    
+    path_dcm = "/ayb/vol3/datasets/pet-ct/part0/990004541/70003623"
+    fname = "CT.1.2.840.113619.2.290.3.279707939.527.1518145288.39.177.dcm.zst"
+    #for fname in os.listdir(path_dcm):        
 
-    path_dcm = "/ayb/vol3/datasets/pet-ct/part01/990005128/70004197"
-    #fname = "CT.1.2.840.113619.2.290.3.279707939.2.1525751328.516.106.pt"
-    for fname in os.listdir(path_dcm):        
+    zd = zstd.ZstdDecompressor()
 
-        zd = zstd.ZstdDecompressor()
+    fname = os.path.join(path_dcm, fname)
 
-        fname = os.path.join(path_dcm, fname)
+    compressed = open(fname, "rb").read()
+    data = zd.decompress(compressed)
+    ds = pydicom.dcmread(BytesIO(data))
+    if 'Lung' in ds.SeriesDescription:
+        print(ds)
 
-        compressed = open(fname, "rb").read()
-        data = zd.decompress(compressed)
-        ds = pydicom.dcmread(BytesIO(data))
-        if 'Lung' in ds.SeriesDescription:
-            #print(ds)
+        # Normal mode:
+        print()
+        print(f"File path........: {fname}")
+        print(f"SOP Class........: {ds.SOPClassUID} ({ds.SOPClassUID.name})")
+        print(f"Series description: {ds.SeriesDescription}")
+        print()
 
-            # Normal mode:
-            print()
-            print(f"File path........: {fname}")
-            print(f"SOP Class........: {ds.SOPClassUID} ({ds.SOPClassUID.name})")
-            print(f"Series descriptgion: {ds.SeriesDescription}")
-            print()
+        pat_name = ds.PatientName
+        #display_name = pat_name.family_name + ", " + pat_name.given_name
+        #print(f"Patient's Name...: {display_name}")
+        print(f"Patient ID.......: {ds.PatientID}")
+        print(f"Modality.........: {ds.Modality}")
+        print(f"Study Date.......: {ds.StudyDate}")
+        print(f"Image size.......: {ds.Rows} x {ds.Columns}")
+        print(f"Pixel Spacing....: {ds.PixelSpacing}")
 
-            pat_name = ds.PatientName
-            #display_name = pat_name.family_name + ", " + pat_name.given_name
-            #print(f"Patient's Name...: {display_name}")
-            print(f"Patient ID.......: {ds.PatientID}")
-            print(f"Modality.........: {ds.Modality}")
-            print(f"Study Date.......: {ds.StudyDate}")
-            print(f"Image size.......: {ds.Rows} x {ds.Columns}")
-            print(f"Pixel Spacing....: {ds.PixelSpacing}")
+        # use .get() if not sure the item exists, and want a default value if missing
+        print(f"Slice location...: {ds.get('SliceLocation', '(missing)')}")
 
-            # use .get() if not sure the item exists, and want a default value if missing
-            print(f"Slice location...: {ds.get('SliceLocation', '(missing)')}")
+        # plot the image using matplotlib
+        #plt.imshow(ds.pixel_array, cmap=plt.cm.gray)
+        #plt.show()
 
-            # plot the image using matplotlib
-            plt.imshow(ds.pixel_array, cmap=plt.cm.gray)
-            plt.show()
-            exit()
+        hu = image_normalization(ds)
+        plt.imshow(hu, cmap=plt.cm.gray)
+        plt.show()
+        print(hu.sum())
+
 
 
 if __name__ == "__main__":
@@ -135,9 +147,9 @@ if __name__ == "__main__":
     #ct_list = [990005110, 990005103, 990005101, 990005099, 990005097, 990005095, 990005093, 990005089, 990005087,\
     #            990005086, 990005086, 990005085, 990005082, 990005081, 990005080, 990005079, 990005078, 990005077]
     #ct_list = ct_list + [990005074,990005075,  990005074, 990005072, 990005070, 990005069, 990005068, 990005065, 990005063, 990005062, 990005058, 990005056, 990005054, 990005052, 990005051]
-    ct_list = [990005120, 990005128, 990005134] #val
-    path = "/ayb/vol3/datasets/pet-ct/part01/"    
-    dataset_path = "/ayb/vol1/kruzhilov/lungs_images_val/"
+    # ct_list = [990005120, 990005128, 990005134] #val
+    # path = "/ayb/vol3/datasets/pet-ct/part01/"    
+    # dataset_path = "/ayb/vol1/kruzhilov/lungs_images_val/"
 
     # for ct_number in ct_list:
     #     print(ct_number)

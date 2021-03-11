@@ -1,3 +1,4 @@
+#%%
 #https://towardsdatascience.com/how-to-code-the-transformer-in-pytorch-24db27c8f9ec
 import copy
 
@@ -5,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import math
+import matplotlib.pyplot as plt
 
 
 def attention(q, k, v, d_k, mask=None):    
@@ -167,49 +169,114 @@ class Decoder(nn.Module):
         return y
 
 
+class Regressor(nn.Module):
+    def __init__(self, d_model, latent=32):
+        super().__init__() 
+        self.fc1 = nn.Linear(d_model, latent)
+        self.bn1 = nn.BatchNorm1d(latent)
+        self.fc2 = nn.Linear(latent, latent)
+        self.bn2 = nn.BatchNorm1d(latent)
+        self.fc3 = nn.Linear(latent, latent)
+        self.bn3 = nn.BatchNorm1d(latent)
+        self.fc4 = nn.Linear(latent, 1)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.bn1(x)
+        x = F.leaky_relu(x)
+        x = self.fc2(x)
+        x = self.bn2(x)
+        x = F.leaky_relu(x)
+        x = self.fc3(x)
+        x = self.bn3(x)
+        x = F.leaky_relu(x)
+        x = self.fc4(x)
+        return x
+
+
 class Transformer(nn.Module):
     def __init__(self, d_model, N, heads):
         super().__init__()
-        self.encoder = Encoder(d_model=d_model, heads=heads, N=2)
-        self.decoder = Decoder(d_model=d_model, heads=heads, N=2)
-        #self.out = nn.Linear(d_model, trg_vocab)
-        self.special_token = nn.Parameter(torch.ones([1, 1, d_model]))
+        self.encoder = Encoder(d_model=d_model, heads=heads, N=N)
+        self.decoder = Decoder(d_model=d_model, heads=1, N=N)
+        self.regressor = Regressor(d_model=d_model)
+        self.special_token = nn.Parameter(torch.ones([1, 1, d_model]), requires_grad=True)
+        self.loss_f = nn.L1Loss()
+        self.to_latent = nn.Linear(2, d_model, bias=False)
+        self.from_latent = nn.Linear(d_model, 2, bias=False)
 
-    def forward(self, src, trg=None):
+    def forward(self, src, x):
         special_token = self.special_token.repeat(src.shape[0], 1, 1)
+        src = self.to_latent(src)
         src = torch.cat([special_token, src], dim=1)
         e_outputs = self.encoder(src, mask=None)
-        special_token_output = e_outputs[:,0,:]
-        fi = torch.zeros([src.shape[0]])
-        d_output = self.decoder(special_token_output, fi)
-        return d_output
+        special_token_output = e_outputs[:,0,:]#.mean(dim=1)
+
+        # positions = torch.randint(high=x.shape[1], size=(x.shape[0],))
+        # positions = positions.to(src.device)
+        # fi = x[0, positions, :].squeeze(1)
+        # d_output = self.decoder(special_token_output, fi)
+        # d_output = d_output.squeeze(1)
+        # d_output = self.from_latent(d_output)
+
+        # real_values_x = torch.gather(y[:, :, 0], 1, positions.unsqueeze(0))  
+        # real_values_y = torch.gather(y[:, :, 1], 1, positions.unsqueeze(0))       
+        # real_values = torch.vstack([real_values_x, real_values_y])
+        # real_values = real_values.transpose(0,1)
+
+        d_output = self.regressor(special_token_output)
+        x = x.to(d_output.device)
+        loss = self.loss_f(d_output, x)
+        return loss
 
 
 def generate_curve(number_of_points=100, number_of_curves=1):
-    w = torch.randint(low=0, high=number_of_points, size=(number_of_curves, 1))
-    w = w.repeat(1, number_of_points).unsqueeze(2)   
+    w0 = 0.01*torch.randint(low=50, high=500, size=(number_of_curves, 1))
+    w = w0.repeat(1, number_of_points).unsqueeze(2)   
     x = torch.linspace(0, 1, steps=number_of_points)
     x = x.unsqueeze(0).repeat(number_of_curves, 1).unsqueeze(2)
-    cos_array = torch.cos(math.pi*w*x)
-    sin_array = torch.sin(math.pi*w*x)
+    cos_array = torch.cos(2*math.pi*x)
+    sin_array = w*torch.sin(2*math.pi*x)
     y = torch.cat([cos_array, sin_array], dim=2)
-    return x, y
+    return x, y, w0
 
 
 if __name__ == "__main__":
-    d_model = 2
-    N = 2
-    heads = 1
-    device = "cpu"
-    encoder = Encoder(d_model=d_model, heads=heads, N=2)
-    transformer = Transformer(d_model=d_model, heads=heads, N=2)
-    x = torch.zeros([1, 3, d_model])
-    
-    x, y = generate_curve(number_of_curves=3)
-    output = transformer(y)
+    d_model = 32
+    N = 6
+    heads = 2
+    device = "cuda:3"
+    encoder = Encoder(d_model=d_model, heads=heads, N=N)
+    transformer = Transformer(d_model=d_model, heads=heads, N=N)
+    transformer = transformer.to(device)
+    #x = torch.zeros([1, 3, d_model])
+
+    optimizer = torch.optim.Adam(transformer.parameters(), lr=0.00003)
+
+    transformer.train()
+    for epoch in range(200):
+        loss_list = []
+        for i in range(500):
+            x, y, w = generate_curve(number_of_curves=10)
+            x = x.to(device)
+            y = y.to(device)
+            #plt.plot(x[0,:,0], y[0,:,0])
+            #plt.show()
+            loss = transformer(y, w)
+            loss_list.append(loss.item())
+            loss.backward()
+            optimizer.step()
+        #print()
+        print(epoch, sum(loss_list) / len(loss_list))
+        # for name, param in transformer.named_parameters():
+        #     if param.requires_grad and param.grad is not None:
+        #         print(name, torch.mean(torch.abs(param.grad)))
+
 
     # decoder = Decoder(d_model=d_model, heads=heads, N=2)
     # x = torch.zeros([3, d_model])
     # fi = torch.FloatTensor([0, 0, 1])
     # y = decoder(x, fi)
-    print(output.shape)
+    #print(output.shape)
+
+# %%
