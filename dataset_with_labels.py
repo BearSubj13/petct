@@ -1,0 +1,146 @@
+import os
+from shutil import rmtree
+import json
+
+import pydicom
+from pydicom.data import get_testdata_file
+from pydicom.pixel_data_handlers.util import apply_modality_lut
+import zstandard as zstd
+from io import BytesIO
+
+import torch
+import torch.nn.functional as F
+from torch.utils.data import Dataset
+
+from create_dataset import normalization_window
+
+
+class LungsLabeled(Dataset):
+    def __init__(self, dataset_path):
+        super().__init__()
+        #files indexes for a person in the list - "person id":[list of indexes]
+        self.person_index_dict = dict()
+        self.image_file_list = []
+        self.label_list = []
+
+
+
+
+
+def dcm_to_dict(file_path, resolution=64, verbose=True):
+    zd = zstd.ZstdDecompressor()
+    compressed = open(file_path, "rb").read()
+    try:
+        data = zd.decompress(compressed)
+        ds = pydicom.dcmread(BytesIO(data))
+    except:
+        if verbose:
+            print("error in reading", file_path)
+        return None 
+
+    arr = ds.get('pixel_array', None)#ds.pixel_array
+    if arr is None:
+        if verbose:
+            print("No image in", file_path)
+        return None
+    hu = apply_modality_lut(arr, ds)
+    arr = normalization_window(hu, ds)
+    hu = torch.FloatTensor(hu)
+    if hu.max() - hu.min() == 0:
+        return None
+    hu = (hu - hu.min()) / (hu.max() - hu.min())
+    
+    if resolution != 512:
+        image_tensor = hu
+        image_tensor = image_tensor.unsqueeze(0)#.unsqueeze(0)
+        image_tensor = F.interpolate(image_tensor, size=resolution)
+        image_tensor = image_tensor.permute(0, 2, 1)
+        image_tensor = F.interpolate(image_tensor, size=resolution) 
+        image_tensor = image_tensor.permute(0, 2, 1)
+        image_tensor = image_tensor.squeeze()
+
+    slice_loc = ds.get('SliceLocation', None)
+    sex = ds.get('PatientSex', None)
+    weight = ds.get('PatientWeight', None)
+    weight = float(weight)
+    length = ds.get('PatientSize', None)
+    length = float(length)
+    patient_id = ds.get('PatientID', None)
+    age = ds.get('PatientAge', None)
+    age = int(age)
+    if slice_loc in None:
+        print("No slice in", file_path)
+        return None
+    else:
+        slice_loc = float(slice_loc)
+
+    return_dict = {"slice":slice_loc, "image":image_tensor, "sex":sex, "weight":weight, \
+                    "length":length, "id":patient_id, "age":age, "position":None}
+    return return_dict
+
+
+def save_dcm_series(person_folder, dataset_path):
+    sub_dir = os.listdir(person_folder)[0]
+    path_dcm = os.path.join(person_folder, sub_dir)
+    file_number = 0
+    ct_list = []
+
+    for dcm_file in os.listdir(path_dcm):
+        if dcm_file[:2] == "CT" and dcm_file[-7:] == "dcm.zst":
+            file_path = os.path.join(path_dcm, dcm_file)
+            ct_dict = dcm_to_dict(file_path, resolution=64)
+            if ct_dict is None:
+                continue
+            else:
+                ct_list.append(ct_dict)
+
+    #normalize slice from 0 to 1
+    min_slice = min(ct_list, key=lambda x: x["slice"] )
+    max_slice = min(ct_list, key=lambda x: x["slice"] )
+
+    person_folder = os.path.join(dataset_path, ct_list[0]["id"])
+    if os.exists(person_folder):
+        rmtree(person_folder)
+    os.mkdir(person_folder)
+    image_folder = os.path.join(person_folder, "images")
+    label_folder = os.path.join(person_folder, "labeles")
+    os.mkdir(image_folder)
+    os.mkdir(label_folder)
+
+    for i, ct_dict in enumerate(ct_list):
+        image_path = os.path.join(image_folder, str(i) + ".pt")
+        torch.save(ct_dict["image"])
+        del ct_dict["image"]
+        label_path = os.path.join(label_folder, str(i) + ".json")
+        json.dumps(label_path, ct_dict)
+        
+
+
+
+if __name__ == "__main__":
+    dcm_path = "/ayb/vol3/datasets/pet-ct/part0/"
+    #person_folder = "/ayb/vol3/datasets/pet-ct/part0/990004541"
+    for person in os.listdir(dcm_path):
+        person_folder = os.path.join(dcm_path, person)
+        save_dcm_series(person_folder)
+        
+
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990004795/70003837/CT.1.2.840.113619.2.290.3.279707939.332.1521085394.707.149.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990004453/70003535/CT.1.2.840.113619.2.290.3.279707939.240.1517454262.499.101.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990004454/70003559/CT.1.2.840.113619.2.290.3.279707939.108.1517886235.971.27.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/70000605/70001651/CT.1.2.840.113619.2.290.3.279707939.455.1490932492.808.154.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/60001077/70001770/CT.1.2.840.113619.2.290.3.279707939.211.1492660019.821.496.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990003070/70002296/CT.1.2.840.113619.2.290.3.279707939.191.1502247828.441.123.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990002678/70002032/CT.1.2.840.113619.2.290.3.279707939.115.1498100816.569.627.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/70000933/70003739/CT.1.2.840.113619.2.290.3.279707939.212.1519789302.352.281.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990004185/70003302/CT.1.2.840.113619.2.290.3.279707939.128.1514259302.703.430.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990003728/70003066/CT.1.2.840.113619.2.290.3.279707939.195.1512012422.930.5.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990002194/70001685/CT.1.2.840.113619.2.290.3.279707939.785.1491537445.8.39.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990001714/70001285/CT.1.2.840.113619.2.290.3.279707939.629.1484886025.832.42.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990004559/70003629/CT.1.2.840.113619.2.25.4.83425147.1519020509.932.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990003898/70003046/CT.1.2.840.113619.2.290.3.279707939.285.1511926941.527.421.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990004892/70003965/CT.1.2.840.113619.2.290.3.279707939.130.1522725787.881.246.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990002275/70001745/CT.1.2.840.113619.2.290.3.279707939.948.1492488545.585.397.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990001848/70001374/CT.1.2.840.113619.2.290.3.279707939.145.1486177721.911.754.dcm.zst
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990002436/70001879/CT.1.2.840.113619.2.290.3.279707939.347.1495166516.684.207.dcm.zst
+#
