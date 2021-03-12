@@ -22,6 +22,35 @@ class LungsLabeled(Dataset):
         self.person_index_dict = dict()
         self.image_file_list = []
         self.label_list = []
+        for person_id in os.listdir(dataset_path):
+            person_folder = os.path.join(dataset_path, person_folder)
+            label_folder = os.path.join(person_folder, 'labels')
+            image_folder = os.path.join(person_folder, 'images')
+            assert os.listdir(label_folder)) == os.listdir(image_folder))
+
+            temp_dict_json = dict()
+            for file_json in os.listdir(label_folder):
+                key_number = int(file_json[:-5])
+                json_path = os.path.join(label_folder, file_json)
+                label_dict = json.load(json_path)
+                temp_dict_json.update({key_number:label_dict})
+
+            temp_dict_image = dict() 
+            for image_file in os.listdir(image_folder):
+                key_number = int(image_file[:-4])
+                image_path = os.path.join(image_folder, image_file)
+                temp_dict_image.update({key_number:image_path})
+
+            index_list = []
+            for i in range(len(os.listdir(label_folder))):
+                self.image_file_list.append(temp_dict_image[i])
+                self.label_list.append(temp_dict_json[i])
+                index_list.append(len(self.image_file_list) - 1)
+            self.person_index_dict.update({person_id:index_list})
+                
+
+
+
 
 
 
@@ -67,15 +96,15 @@ def dcm_to_dict(file_path, resolution=64, verbose=True):
     length = float(length)
     patient_id = ds.get('PatientID', None)
     age = ds.get('PatientAge', None)
-    age = int(age)
-    if slice_loc in None:
+    age = int(age[:-1])
+    if slice_loc is None:
         print("No slice in", file_path)
         return None
     else:
         slice_loc = float(slice_loc)
 
     return_dict = {"slice":slice_loc, "image":image_tensor, "sex":sex, "weight":weight, \
-                    "length":length, "id":patient_id, "age":age, "position":None}
+                    "length":length, "id":patient_id, "age":age, "position":None, "file":file_path}
     return return_dict
 
 
@@ -95,11 +124,20 @@ def save_dcm_series(person_folder, dataset_path):
                 ct_list.append(ct_dict)
 
     #normalize slice from 0 to 1
-    min_slice = min(ct_list, key=lambda x: x["slice"] )
-    max_slice = min(ct_list, key=lambda x: x["slice"] )
+    if len(ct_list) > 0:
+        min_slice = min(ct_list, key=lambda x: x["slice"] )["slice"]
+        max_slice = max(ct_list, key=lambda x: x["slice"] )["slice"]
+        d = max_slice - min_slice
+        for i, ct_dict in enumerate(ct_list):
+            position = (ct_dict["slice"] - min_slice) / d
+            ct_list[i].update({"position":position}) 
+        ct_list = sorted(ct_list, key=lambda x: x["position"])
+    else:
+        print("empty list:", path_dcm)
+        return None
 
     person_folder = os.path.join(dataset_path, ct_list[0]["id"])
-    if os.exists(person_folder):
+    if os.path.exists(person_folder):
         rmtree(person_folder)
     os.mkdir(person_folder)
     image_folder = os.path.join(person_folder, "images")
@@ -109,21 +147,20 @@ def save_dcm_series(person_folder, dataset_path):
 
     for i, ct_dict in enumerate(ct_list):
         image_path = os.path.join(image_folder, str(i) + ".pt")
-        torch.save(ct_dict["image"])
+        torch.save(ct_dict["image"], image_path)
         del ct_dict["image"]
         label_path = os.path.join(label_folder, str(i) + ".json")
-        json.dumps(label_path, ct_dict)
-        
-
-
+        with open(label_path, 'w') as fp:
+            json.dump(ct_dict, fp)
+      
 
 if __name__ == "__main__":
     dcm_path = "/ayb/vol3/datasets/pet-ct/part0/"
-    #person_folder = "/ayb/vol3/datasets/pet-ct/part0/990004541"
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs/train"
     for person in os.listdir(dcm_path):
         person_folder = os.path.join(dcm_path, person)
-        save_dcm_series(person_folder)
-        
+        save_dcm_series(person_folder, dataset_path)
+        #break
 
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990004795/70003837/CT.1.2.840.113619.2.290.3.279707939.332.1521085394.707.149.dcm.zst
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990004453/70003535/CT.1.2.840.113619.2.290.3.279707939.240.1517454262.499.101.dcm.zst
@@ -143,4 +180,7 @@ if __name__ == "__main__":
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990002275/70001745/CT.1.2.840.113619.2.290.3.279707939.948.1492488545.585.397.dcm.zst
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990001848/70001374/CT.1.2.840.113619.2.290.3.279707939.145.1486177721.911.754.dcm.zst
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990002436/70001879/CT.1.2.840.113619.2.290.3.279707939.347.1495166516.684.207.dcm.zst
-#
+#empty list: /ayb/vol3/datasets/pet-ct/part0/990004644/70003691
+#empty list: /ayb/vol3/datasets/pet-ct/part0/990003283/70006026
+#empty list: /ayb/vol3/datasets/pet-ct/part0/990000111/70005383
+#empty list: /ayb/vol3/datasets/pet-ct/part0/990003882/70007514
