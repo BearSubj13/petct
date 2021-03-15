@@ -1,7 +1,9 @@
+#%%
 import os
 from shutil import rmtree
 import json
 
+import matplotlib.pyplot as plt
 import pydicom
 from pydicom.data import get_testdata_file
 from pydicom.pixel_data_handlers.util import apply_modality_lut
@@ -12,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
-from create_dataset import normalization_window
+from create_dataset import normalization_window, lung_files
 
 
 class LungsLabeled(Dataset):
@@ -22,22 +24,24 @@ class LungsLabeled(Dataset):
         self.person_index_dict = dict()
         self.image_file_list = []
         self.label_list = []
+
         for person_id in os.listdir(dataset_path):
-            person_folder = os.path.join(dataset_path, person_folder)
-            label_folder = os.path.join(person_folder, 'labels')
+            person_folder = os.path.join(dataset_path, person_id)
+            label_folder = os.path.join(person_folder, 'labeles')
             image_folder = os.path.join(person_folder, 'images')
-            assert os.listdir(label_folder)) == os.listdir(image_folder))
+            assert len(os.listdir(label_folder)) == len(os.listdir(image_folder))
 
             temp_dict_json = dict()
             for file_json in os.listdir(label_folder):
                 key_number = int(file_json[:-5])
                 json_path = os.path.join(label_folder, file_json)
-                label_dict = json.load(json_path)
+                with open(json_path, 'r') as fp:
+                    label_dict = json.load(fp)
                 temp_dict_json.update({key_number:label_dict})
 
             temp_dict_image = dict() 
             for image_file in os.listdir(image_folder):
-                key_number = int(image_file[:-4])
+                key_number = int(image_file[:-3])
                 image_path = os.path.join(image_folder, image_file)
                 temp_dict_image.update({key_number:image_path})
 
@@ -47,7 +51,17 @@ class LungsLabeled(Dataset):
                 self.label_list.append(temp_dict_json[i])
                 index_list.append(len(self.image_file_list) - 1)
             self.person_index_dict.update({person_id:index_list})
-                
+            
+
+        assert len(self.image_file_list) == len(self.label_list)
+            
+    def __len__(self):
+        return len(self.image_file_list)
+
+    def __getitem__(self, index):
+        label = self.label_list[index]
+        image = torch.load(self.image_file_list[index])
+        return image, label
 
 
 
@@ -56,7 +70,7 @@ class LungsLabeled(Dataset):
 
 
 
-def dcm_to_dict(file_path, resolution=64, verbose=True):
+def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True):
     zd = zstd.ZstdDecompressor()
     compressed = open(file_path, "rb").read()
     try:
@@ -66,6 +80,9 @@ def dcm_to_dict(file_path, resolution=64, verbose=True):
         if verbose:
             print("error in reading", file_path)
         return None 
+
+    if only_lungs and 'Lung' not in ds.SeriesDescription:
+        return None
 
     arr = ds.get('pixel_array', None)#ds.pixel_array
     if arr is None:
@@ -109,11 +126,21 @@ def dcm_to_dict(file_path, resolution=64, verbose=True):
 
 
 def save_dcm_series(person_folder, dataset_path):
-    sub_dir = os.listdir(person_folder)[0]
+    dir_list = os.listdir(person_folder)
+    if len(dir_list) == 1:
+        sub_dir = dir_list[0]
+    elif len(dir_list) > 1:
+        for sub_dir in dir_list:
+            full_path = os.path.join(person_folder, sub_dir)
+            if len(os.listdir(full_path)) > 0:
+                break  
+    else:
+        return None 
     path_dcm = os.path.join(person_folder, sub_dir)
     file_number = 0
     ct_list = []
 
+    
     for dcm_file in os.listdir(path_dcm):
         if dcm_file[:2] == "CT" and dcm_file[-7:] == "dcm.zst":
             file_path = os.path.join(path_dcm, dcm_file)
@@ -160,7 +187,13 @@ if __name__ == "__main__":
     for person in os.listdir(dcm_path):
         person_folder = os.path.join(dcm_path, person)
         save_dcm_series(person_folder, dataset_path)
-        #break
+
+
+    # lung_dataset = LungsLabeled(dataset_path)
+    # image, label = lung_dataset.__getitem__(3300)
+    # print(label)
+    # plt.imshow(image, cmap=plt.cm.gray)
+    # plt.show()
 
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990004795/70003837/CT.1.2.840.113619.2.290.3.279707939.332.1521085394.707.149.dcm.zst
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990004453/70003535/CT.1.2.840.113619.2.290.3.279707939.240.1517454262.499.101.dcm.zst
@@ -179,8 +212,9 @@ if __name__ == "__main__":
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990004892/70003965/CT.1.2.840.113619.2.290.3.279707939.130.1522725787.881.246.dcm.zst
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990002275/70001745/CT.1.2.840.113619.2.290.3.279707939.948.1492488545.585.397.dcm.zst
 #error in reading /ayb/vol3/datasets/pet-ct/part0/990001848/70001374/CT.1.2.840.113619.2.290.3.279707939.145.1486177721.911.754.dcm.zst
-#error in reading /ayb/vol3/datasets/pet-ct/part0/990002436/70001879/CT.1.2.840.113619.2.290.3.279707939.347.1495166516.684.207.dcm.zst
-#empty list: /ayb/vol3/datasets/pet-ct/part0/990004644/70003691
-#empty list: /ayb/vol3/datasets/pet-ct/part0/990003283/70006026
-#empty list: /ayb/vol3/datasets/pet-ct/part0/990000111/70005383
-#empty list: /ayb/vol3/datasets/pet-ct/part0/990003882/70007514
+#error in reading /ayb/vol3/datasets/pet-ct/part0/990002436/70001879/CT.1.2.840.113619.2.290.3.279707939.347.1495166516.684.207.dcm.zstempty list: /ayb/vol3/datasets/pet-ct/part0/70000551/70001396
+
+#empty list: /ayb/vol3/datasets/pet-ct/part0/990001963/70001489
+#empty list: /ayb/vol3/datasets/pet-ct/part0/70000551/70001396
+
+# %%
