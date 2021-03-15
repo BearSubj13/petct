@@ -8,7 +8,7 @@ from dataset_with_labels import LungsLabeled
 from simple_transformer import Regressor
 from torch.utils.data import DataLoader
 
-
+#
 if __name__ == "__main__":
     dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs/train"
     lung_dataset = LungsLabeled(dataset_path, terminate=True)
