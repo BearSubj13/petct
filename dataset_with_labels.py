@@ -2,6 +2,7 @@
 import os
 from shutil import rmtree
 import json
+from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 import pydicom
@@ -18,14 +19,18 @@ from create_dataset import normalization_window, lung_files
 
 
 class LungsLabeled(Dataset):
-    def __init__(self, dataset_path):
+    """
+    terminate: int or False - stop add new values to dataset if index > terminate
+    """
+    def __init__(self, dataset_path, terminate=False, load_memory=False):
         super().__init__()
+        self.load_memory = load_memory
         #files indexes for a person in the list - "person id":[list of indexes]
         self.person_index_dict = dict()
         self.image_file_list = []
         self.label_list = []
 
-        for person_id in os.listdir(dataset_path):
+        for person_index, person_id in enumerate(tqdm(os.listdir(dataset_path))):
             person_folder = os.path.join(dataset_path, person_id)
             label_folder = os.path.join(person_folder, 'labeles')
             image_folder = os.path.join(person_folder, 'images')
@@ -43,6 +48,8 @@ class LungsLabeled(Dataset):
             for image_file in os.listdir(image_folder):
                 key_number = int(image_file[:-3])
                 image_path = os.path.join(image_folder, image_file)
+                if load_memory:
+                    image_path = torch.load(image_path)
                 temp_dict_image.update({key_number:image_path})
 
             index_list = []
@@ -51,6 +58,10 @@ class LungsLabeled(Dataset):
                 self.label_list.append(temp_dict_json[i])
                 index_list.append(len(self.image_file_list) - 1)
             self.person_index_dict.update({person_id:index_list})
+
+            if terminate:
+                if person_index > terminate:
+                    return None
             
 
         assert len(self.image_file_list) == len(self.label_list)
@@ -60,9 +71,15 @@ class LungsLabeled(Dataset):
 
     def __getitem__(self, index):
         label = self.label_list[index]
-        image = torch.load(self.image_file_list[index])
+        if self.load_memory:
+            image = self.image_file_list[index]
+        else:
+            image = torch.load(self.image_file_list[index])
         return image, label
 
+    # def get_person_item(person_id, index):
+    #     list_of_indexes = self.person_index_dict[person_id]
+    #     return self.__getitem__(list_of_indexes[index])
 
 
 
@@ -182,9 +199,11 @@ def save_dcm_series(person_folder, dataset_path):
       
 
 if __name__ == "__main__":
-    dcm_path = "/ayb/vol3/datasets/pet-ct/part0/"
-    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs/train"
+    dcm_path = "/ayb/vol3/datasets/pet-ct/part01/"
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs/val"
     for person in os.listdir(dcm_path):
+        #old_dir = os.listdir("/ayb/vol1/kruzhilov/datasets/labeled_lungs/train")
+        #if person not in old_dir:
         person_folder = os.path.join(dcm_path, person)
         save_dcm_series(person_folder, dataset_path)
 
