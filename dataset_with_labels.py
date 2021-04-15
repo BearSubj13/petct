@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 
 from create_dataset import normalization_window, lung_files
+from utils.pdf_extraction import extract_lungs_description
 
 
 class LungsLabeled(Dataset):
@@ -26,6 +27,8 @@ class LungsLabeled(Dataset):
         super().__init__()
         self.load_memory = load_memory
         #files indexes for a person in the list - "person id":[list of indexes]
+        self.person_label_dict = dict()
+        #a dictionary contains all information about a person
         self.person_index_dict = dict()
         self.image_file_list = []
         self.label_list = []
@@ -42,6 +45,11 @@ class LungsLabeled(Dataset):
                 json_path = os.path.join(label_folder, file_json)
                 with open(json_path, 'r') as fp:
                     label_dict = json.load(fp)
+                    if label_dict["sex"] == "M":
+                       label_dict["sex"] = 0
+                    else:
+                       label_dict["sex"] = 1  
+
                 temp_dict_json.update({key_number:label_dict})
 
             temp_dict_image = dict() 
@@ -57,7 +65,12 @@ class LungsLabeled(Dataset):
                 self.image_file_list.append(temp_dict_image[i])
                 self.label_list.append(temp_dict_json[i])
                 index_list.append(len(self.image_file_list) - 1)
+
             self.person_index_dict.update({person_id:index_list})
+            person_inform = label_dict
+            del person_inform['slice']
+            del person_inform['position']
+            self.person_label_dict.update({person_id:person_inform})
 
             if terminate:
                 if person_index > terminate:
@@ -82,11 +95,6 @@ class LungsLabeled(Dataset):
     #     return self.__getitem__(list_of_indexes[index])
 
 
-
-
-
-
-
 def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True):
     zd = zstd.ZstdDecompressor()
     compressed = open(file_path, "rb").read()
@@ -106,7 +114,7 @@ def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True):
         if verbose:
             print("No image in", file_path)
         return None
-    hu = apply_modality_lut(arr, ds)
+    hu =    (arr, ds)
     arr = normalization_window(hu, ds)
     hu = torch.FloatTensor(hu)
     if hu.max() - hu.min() == 0:
@@ -142,12 +150,13 @@ def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True):
     return return_dict
 
 
-def save_dcm_series(person_folder, dataset_path):
+def save_dcm_series(person_folder, dataset_path, type_of_image="CT"):
     dir_list = os.listdir(person_folder)
     if len(dir_list) == 1:
         sub_dir = dir_list[0]
     elif len(dir_list) > 1:
         for sub_dir in dir_list:
+            #looks for an non-empty sub_dir
             full_path = os.path.join(person_folder, sub_dir)
             if len(os.listdir(full_path)) > 0:
                 break  
@@ -157,14 +166,18 @@ def save_dcm_series(person_folder, dataset_path):
     file_number = 0
     ct_list = []
 
+    lungs_description = extract_lungs_description(path_dcm)
+    if lungs_description is None:
+        return None
     
     for dcm_file in os.listdir(path_dcm):
-        if dcm_file[:2] == "CT" and dcm_file[-7:] == "dcm.zst":
+        if dcm_file[:2] == type_of_image and dcm_file[-7:] == "dcm.zst":
             file_path = os.path.join(path_dcm, dcm_file)
             ct_dict = dcm_to_dict(file_path, resolution=64)
             if ct_dict is None:
                 continue
             else:
+                ct_dict.update({'description':lungs_description})
                 ct_list.append(ct_dict)
 
     #normalize slice from 0 to 1
@@ -196,21 +209,21 @@ def save_dcm_series(person_folder, dataset_path):
         label_path = os.path.join(label_folder, str(i) + ".json")
         with open(label_path, 'w') as fp:
             json.dump(ct_dict, fp)
-      
-
+     
+ 
 if __name__ == "__main__":
     dcm_path = "/ayb/vol3/datasets/pet-ct/part01/"
-    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs/val"
-    for person in os.listdir(dcm_path):
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/val"
+    #for person in os.listdir(dcm_path):
         #old_dir = os.listdir("/ayb/vol1/kruzhilov/datasets/labeled_lungs/train")
         #if person not in old_dir:
-        person_folder = os.path.join(dcm_path, person)
-        save_dcm_series(person_folder, dataset_path)
+        #person_folder = os.path.join(dcm_path, person)
+        #save_dcm_series(person_folder, dataset_path, type_of_image="PI")
 
-
-    # lung_dataset = LungsLabeled(dataset_path)
-    # image, label = lung_dataset.__getitem__(3300)
-    # print(label)
+    lung_dataset = LungsLabeled(dataset_path, terminate=5, load_memory=False)
+    #image, label = lung_dataset.__getitem__(3300)
+    key = list(lung_dataset.person_index_dict.keys())[0]
+    print(lung_dataset.person_label_dict[key])
     # plt.imshow(image, cmap=plt.cm.gray)
     # plt.show()
 
