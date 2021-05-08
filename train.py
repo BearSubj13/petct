@@ -174,7 +174,7 @@ def ssim_metric(image_original, image_reconstructed):
     elif size == 32:
         kernel_size = 5
     elif size == 64:
-        kernle_size = 7
+        kernel_size = 7
     else:
         kernel_size = 9
 
@@ -218,24 +218,24 @@ def validation_epoch(model, lungs_data_loader, current_lod):
 if __name__ == "__main__":
     dataset_path = "/ayb/vol1/kruzhilov/lungs_images/"
     dataset_path_val = "/ayb/vol1/kruzhilov/lungs_images_val/"
-    resolution_power = 5
-    load_model_path = 'weights/model32_5layers.pth'
-    save_model_path = 'weights/model32_5layers_2.pth'
+    resolution_power = 6
+    load_model_path = 'weights/model64_5layers_2.pth'
+    save_model_path = 'weights/model64_5layers.pth'
     r1_gamma = 70
-    mse_penalty = 0.5
-    weigt_decay = 0.001
+    mse_penalty = 0.1
+    weight_decay = 0.001
     boundary = 0.0
-    batch_size = 300
+    batch_size = 100
     blending_step = None#0.04    
-    lr = 0.0002
+    lr = 0.0001
 
-    device = "cuda:1"
+    device = "cuda:2"
     print('resolution:', 2**resolution_power)
     print('loaded from:', load_model_path)
     print("batch size:", batch_size)
     print('lr:', lr)
     print('r1 gamma:', r1_gamma)
-    print('encoder weight decay:', weigt_decay)
+    print('encoder weight decay:', weight_decay)
     print('mse penalty:', mse_penalty)
 
     lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
@@ -263,7 +263,7 @@ if __name__ == "__main__":
 
     encoder_optimizer = torch.optim.Adam([
         {'params': encoder.parameters()},
-    ], lr=2*lr, weight_decay=weigt_decay)
+    ], lr=2*lr, weight_decay=weight_decay)
 
     discriminator_optimizer = torch.optim.Adam([
         {'params': mapping_d.parameters()},
@@ -289,7 +289,7 @@ if __name__ == "__main__":
                  loss['mse_rec'], psnr, ssim)#, loss['boundary'])         
         print(format_output)
 
-        if loss['mse_rec'] < 0.05 and epoch > 10:
+        if loss['mse_rec'] < 0.03 and epoch > 10:
             torch.save(model.state_dict(), save_model_path)
         
 

@@ -19,8 +19,9 @@ class LungsLabeled(Dataset):
     terminate: int or False - stop add new values to dataset if index > terminate
     load_memory: boolean - if True loads images to memory
     """
-    def __init__(self, dataset_path, terminate=False, load_memory=False):
+    def __init__(self, dataset_path, terminate=False, load_memory=False, load_slices_labels=True):
         super().__init__()
+        self.load_slices_labels = load_slices_labels
         self.load_memory = load_memory
         #files indexes for a person in the list - "person id":[list of indexes]
         self.person_label_dict = dict()
@@ -46,18 +47,19 @@ class LungsLabeled(Dataset):
             self.person_label_dict.update({person_id:person_label})
 
             #add labels
-            temp_dict_json = dict()
-            for file_json in os.listdir(label_folder):
-                key_number = int(file_json[:-5])
-                json_path = os.path.join(label_folder, file_json)
-                with open(json_path, 'r') as fp:
-                    label_dict = json.load(fp)
-                    if label_dict["sex"] == "M":
-                       label_dict["sex"] = 0
-                    else:
-                       label_dict["sex"] = 1  
+            if self.load_slices_labels:
+                temp_dict_json = dict()
+                for file_json in os.listdir(label_folder):
+                    key_number = int(file_json[:-5])
+                    json_path = os.path.join(label_folder, file_json)
+                    with open(json_path, 'r') as fp:
+                        label_dict = json.load(fp)
+                        if label_dict["sex"] == "M":
+                           label_dict["sex"] = 0
+                        else:
+                           label_dict["sex"] = 1  
 
-                temp_dict_json.update({key_number:label_dict})
+                    temp_dict_json.update({key_number:label_dict})
 
             #add ct images
             temp_dict_ct = dict() 
@@ -81,7 +83,8 @@ class LungsLabeled(Dataset):
             for i in range(len(os.listdir(label_folder))):
                 self.ct_file_list.append(temp_dict_ct[i])
                 self.pi_file_list.append(temp_dict_pi[i])
-                self.label_list.append(temp_dict_json[i])
+                if self.load_slices_labels: 
+                    self.label_list.append(temp_dict_json[i])
                 index_list.append(len(self.ct_file_list) - 1)
 
             self.person_index_dict.update({person_id:index_list})
@@ -90,7 +93,7 @@ class LungsLabeled(Dataset):
             if terminate:
                 if person_index > terminate:
                     return None
-            
+        if not self.load_slices_labels: return 
         assert len(self.ct_file_list) == len(self.label_list)
         assert len(self.pi_file_list) == len(self.label_list)
             
@@ -98,7 +101,10 @@ class LungsLabeled(Dataset):
         return len(self.image_file_list)
 
     def __getitem__(self, index):
-        label = self.label_list[index]
+        if self.load_slices_labels:
+            label = self.label_list[index]
+        else:
+            label = ''
         if self.load_memory:
             ct = self.ct_file_list[index]
             pi = self.pi_file_list[index]

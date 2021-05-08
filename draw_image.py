@@ -17,11 +17,11 @@ def image_normalization(image):
     return image
 
 if __name__ == "__main__":
-    resolution_power = 2
-    dataset_path = "/ayb/vol1/kruzhilov/lungs_images_val"
+    resolution_power = 6
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/lungs_images_val"
     device = "cpu"# "cuda:2"
-    generate_mode = True
-    model_path = 'weights/model4_5layers.pth'
+    generate_mode = False
+    model_path = 'weights/model64_5layers.pth'
 
     model = Model(channels=1, device=device, layer_count=5)
     model = model.to(device)
@@ -43,6 +43,7 @@ if __name__ == "__main__":
         lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
         #print(len(lung_dataset))
         item = np.random.randint(len(lung_dataset))
+        print(item)
         image = lung_dataset.__getitem__(item)
         image = image.unsqueeze(0)  
         #image = augmentation(image, p_augment=1)
@@ -69,4 +70,4 @@ if __name__ == "__main__":
         print("error:", error)
 
 
-    # %%
+        # %%

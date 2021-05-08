@@ -192,14 +192,14 @@ class Regressor(nn.Module):
         x = F.leaky_relu(x)
         x = self.fc4(x)
         return x
-
+        
 
 class Transformer(nn.Module):
     def __init__(self, d_model, N, heads):
         super().__init__()
         self.encoder = Encoder(d_model=d_model, heads=heads, N=N)
         self.decoder = Decoder(d_model=d_model, heads=1, N=N)
-        self.regressor = Regressor(d_model=d_model)
+        self.regressor = Regressor(d_model=d_model, latent=64)
         self.special_token = nn.Parameter(torch.ones([1, 1, d_model]), requires_grad=True)
         self.loss_f = nn.L1Loss()
         self.to_latent = nn.Linear(2, d_model, bias=False)

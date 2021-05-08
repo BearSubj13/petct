@@ -95,9 +95,8 @@ def add_files_to_dataset(dcm_files_path, dataset_path):
         tr.save(result_dict, file_path_in_dataset)
 
 
-def test_dcm():
-    path_dcm = "/ayb/vol3/datasets/pet-ct/part0/990004541/70003623"
-    fname = "CT.1.2.840.113619.2.290.3.279707939.527.1518145288.39.177.dcm.zst"
+def test_dcm(path_dcm = "/ayb/vol3/datasets/pet-ct/part0/990004541/70003623",
+             fname = "PI.1.2.840.113619.2.290.279707939.1518160381.95610.dcm.zst"):
     #for fname in os.listdir(path_dcm):        
 
     zd = zstd.ZstdDecompressor()
@@ -107,6 +106,7 @@ def test_dcm():
     compressed = open(fname, "rb").read()
     data = zd.decompress(compressed)
     ds = pydicom.dcmread(BytesIO(data))
+    print(ds.SeriesDescription, ds.get('SliceLocation'))
     if 'Lung' in ds.SeriesDescription:
         print(ds)
 
@@ -142,21 +142,24 @@ def test_dcm():
 
 if __name__ == "__main__":
     #white bolb in lung - part01/990005128/70004197/CT.1.2.840.113619.2.290.3.279707939.2.1525751328.516.134.dcm.zst
-    test_dcm()
+    #test_dcm()
 
     #ct_list = [990005110, 990005103, 990005101, 990005099, 990005097, 990005095, 990005093, 990005089, 990005087,\
     #            990005086, 990005086, 990005085, 990005082, 990005081, 990005080, 990005079, 990005078, 990005077]
     #ct_list = ct_list + [990005074,990005075,  990005074, 990005072, 990005070, 990005069, 990005068, 990005065, 990005063, 990005062, 990005058, 990005056, 990005054, 990005052, 990005051]
     # ct_list = [990005120, 990005128, 990005134] #val
-    # path = "/ayb/vol3/datasets/pet-ct/part01/"    
+    path = "/ayb/vol3/datasets/pet-ct/part01/"    
     # dataset_path = "/ayb/vol1/kruzhilov/lungs_images_val/"
 
-    # for ct_number in ct_list:
-    #     print(ct_number)
-    #     path_dcm = os.path.join(path, str(ct_number))
-    #     sub_dir = os.listdir(path_dcm)[0]
-    #     path_dcm = os.path.join(path_dcm, sub_dir)
-    #     add_files_to_dataset(path_dcm, dataset_path)
+    for ct_number in os.listdir(path):
+        print(ct_number)
+        path_dcm = os.path.join(path, ct_number)
+        sub_dir = os.listdir(path_dcm)[0]
+        path_dcm = os.path.join(path_dcm, sub_dir)
+        for file_name in os.listdir(path_dcm):
+            if file_name[:2] == "PI":
+                test_dcm(path_dcm, file_name)
+            
 
     # lung_files_list = lung_files(path_dcm)
     # file_path = os.path.join(path_dcm, lung_files_list[0])
