@@ -7,8 +7,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import piq
 
-from losses import reconstruction, reconstruction_l1, lasso
+from losses import reconstruction, reconstruction_l1, lasso, reconstruction_pi_ct
 from model import Model
+from dataset_with_labels import LungsLabeled
 
 
 class CTDataset(Dataset):
@@ -20,7 +21,7 @@ class CTDataset(Dataset):
             image_tensor = torch.load(file_path)
             image_tensor = image_tensor.unsqueeze(0)#.unsqueeze(0)
             if torch.isnan(image_tensor).any() or torch.isinf(image_tensor).any():
-                print(file_name)
+                print("NaN or inf in:", file_name)
                 continue
             if resolution:
                image_tensor = F.interpolate(image_tensor, size=resolution)
@@ -63,7 +64,7 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optim
     loss_boundary_list = []
     for image_tensor in lungs_data_loader:
         if blend_factor < 1:
-            needed_resolution = image_tensor.shape[1]
+            needed_resolution = image_tensor.shape[-1]
             x_prev = F.avg_pool2d(image_tensor, 2, 2)
             x_prev_2x = F.interpolate(x_prev, needed_resolution)
             image_tensor = image_tensor * blend_factor + x_prev_2x * (1.0 - blend_factor)
@@ -118,7 +119,7 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optim
         decoder_optimizer.zero_grad()
         loss_image_reconstruction, loss_latent_reconstruction, loss_g_reconstr, _ = \
             model.reciprocity(x=image_tensor, lod=current_lod, blend_factor=blend_factor, \
-                 loss=reconstruction, freeze_previous_layers=freeze_previous_layers)
+                 loss=reconstruction_pi_ct, freeze_previous_layers=freeze_previous_layers)
         loss_latent_reconstruction_list.append(loss_latent_reconstruction.item())
         loss_image_reconstruction_list.append(loss_image_reconstruction.item())
         loss_g_reconst_list.append(loss_g_reconstr.item())
@@ -204,10 +205,10 @@ def validation_epoch(model, lungs_data_loader, current_lod):
             loss_image_reconstruction, loss_latent_reconstruction,\
                 loss_g_reconstr, image_reconstructed = \
                 model.reciprocity(x=image_tensor, lod=current_lod, blend_factor=1, loss=reconstruction)
-            psnr = psnr_metric(image_tensor, image_reconstructed)
+            psnr = psnr_metric(image_tensor[:,0,:,:], image_reconstructed[:,0,:,:])
             psnr_list.append(psnr)
 
-            ssim = ssim_metric(image_tensor, image_reconstructed)
+            ssim = 0#ssim_metric(image_tensor, image_reconstructed)
             ssim_list.append(ssim)
 
         psnr = sum(psnr_list) / len(psnr_list)
@@ -216,17 +217,17 @@ def validation_epoch(model, lungs_data_loader, current_lod):
 
 
 if __name__ == "__main__":
-    dataset_path = "/ayb/vol1/kruzhilov/lungs_images/"
-    dataset_path_val = "/ayb/vol1/kruzhilov/lungs_images_val/"
-    resolution_power = 6
-    load_model_path = 'weights/model64_5layers_2.pth'
-    save_model_path = 'weights/model64_5layers.pth'
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/train"
+    dataset_path_val = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/train"
+    resolution_power = 4
+    load_model_path = 'weights/weights_pi/pi8_5layers.pth'
+    save_model_path = 'weights/weights_pi/pi16_5layers.pth'
     r1_gamma = 70
-    mse_penalty = 0.1
+    mse_penalty = 0.005
     weight_decay = 0.001
     boundary = 0.0
     batch_size = 100
-    blending_step = None#0.04    
+    blending_step = 0.05    
     lr = 0.0001
 
     device = "cuda:2"
@@ -238,14 +239,14 @@ if __name__ == "__main__":
     print('encoder weight decay:', weight_decay)
     print('mse penalty:', mse_penalty)
 
-    lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
-    lung_dataset_val = CTDataset(dataset_path_val, resolution=2**resolution_power)
+    lung_dataset = LungsLabeled(dataset_path, terminate=100, resolution=2**resolution_power, load_memory=True, load_labels=False)
+    lung_dataset_val = LungsLabeled(dataset_path_val, terminate=10, resolution=2**resolution_power, load_memory=True, load_labels=False)
     print('train dataset size:', len(lung_dataset), 'validation:', len(lung_dataset_val))
-    #exit()
+   
     lungs_data_loader = DataLoader(dataset=lung_dataset, shuffle=True, batch_size=batch_size)
     lungs_data_loader_val = DataLoader(dataset=lung_dataset_val, shuffle=False, batch_size=batch_size)
 
-    model = Model(channels=1, device=device, layer_count=5)
+    model = Model(channels=2, device=device, layer_count=5)
     model = model.to(device)
     if load_model_path:
         model.load_state_dict(torch.load(load_model_path, map_location=device))
@@ -271,7 +272,7 @@ if __name__ == "__main__":
 
     current_lod = resolution_power - 2
 
-    for epoch in range(500):
+    for epoch in range(120):
         if blending_step:
             current_blend_factor = min(1, 0.01 + epoch*blending_step)
         else:
@@ -284,12 +285,12 @@ if __name__ == "__main__":
 
         psnr, ssim = validation_epoch(model, lungs_data_loader, current_lod)
 
-        format_output = "{0:3d}  d:{1:2.5f}, g:{2:2.5f}, lae:{3:2.5f}    lae rec:{4:2.5f}, mse:{5:2.5f},   psnr:{6:3.1f}, ssim:{7:1.5f}". \
+        format_output = "{0:3d}  d:{1:2.5f}, g:{2:2.5f}, lae:{3:2.5f},   lae rec:{4:2.5f}, mse rec:{5:2.5f},   psnr val:{6:3.1f}, ssim val:{7:1.5f}". \
             format(epoch, loss['d'], loss['g'], loss['lae'], loss['lae_rec'], \
                  loss['mse_rec'], psnr, ssim)#, loss['boundary'])         
         print(format_output)
 
-        if loss['mse_rec'] < 0.03 and epoch > 10:
+        if loss['mse_rec'] < 0.8 and epoch > 10: #0.03
             torch.save(model.state_dict(), save_model_path)
         
 

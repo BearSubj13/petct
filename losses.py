@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
+import warnings
+
 import torch
 import torch.nn.functional as F
 
@@ -26,13 +28,32 @@ def kl(mu, log_var):
 
 
 def reconstruction(recon_x, x, lod=None, mse=True):
-        return torch.mean((recon_x - x)**2)
+    return torch.mean((recon_x - x)**2)
 
 def reconstruction_l1(recon_x, x, lod=None, mse=True):
-        return torch.mean(torch.abs(recon_x - x))
+       return torch.mean(torch.abs(recon_x - x))
 
 def lasso(recon_x, x, lod=None, l1_coeff=0.1):
-        return l1_coeff*torch.mean(torch.abs(recon_x - x)) + (1 - l1_coeff)*torch.mean((recon_x - x)**2)
+      return l1_coeff*torch.mean(torch.abs(recon_x - x)) + (1 - l1_coeff)*torch.mean((recon_x - x)**2)
+
+
+def reconstruction_pi_ct(recon_x, x, lod=None, mse=True):
+    if x.ndim == 4 and x.shape[1] == 2:
+        ct_reconstr = recon_x[:,0,:,:]
+        ct = x[:,0,:,:]
+        pi_reconstr = recon_x[:,1,:,:]
+        pi = x[:,1,:,:]
+        max_x, _ = torch.max(pi, dim=-1)
+        max_x, _ = torch.max(max_x,dim=-1)
+        pi_err = (pi_reconstr - pi)**2
+        #layerwiese multiplication 
+        pi_err = (pi_err.permute(1,2,0)*(1/max_x**2)).permute(2,0,1)
+        pi_err = pi_err.mean()
+        ct_mse = torch.mean((ct_reconstr - ct)**2)
+        return pi_err + ct_mse
+    else:
+        warnings.warn("Tensor should be of a size :,2,:,:")
+        return None
 
 def discriminator_logistic_simple_gp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
     loss = (F.softplus(d_result_fake) + F.softplus(-d_result_real))
