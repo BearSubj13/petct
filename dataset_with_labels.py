@@ -125,7 +125,7 @@ class LungsLabeled(Dataset):
             ct = rescale_image(ct, output_size=self.resolution)
             pi = rescale_image(pi, output_size=self.resolution)
         ct = ct.unsqueeze(0)
-        pi = pi.unsqueeze(0) / 15000
+        pi = pi.unsqueeze(0) / 16000
         ct_pi = torch.cat([ct, pi], dim=0)
         return ct_pi#ct, pi, label
 
@@ -189,7 +189,7 @@ def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True):
     return return_dict
 
 
-def save_dcm_series(person_folder, dataset_path):
+def save_dcm_series(person_folder, dataset_path, resolution=64):
     dir_list = os.listdir(person_folder)
     if len(dir_list) == 1:
         sub_dir = dir_list[0]
@@ -212,7 +212,7 @@ def save_dcm_series(person_folder, dataset_path):
     for dcm_file in os.listdir(path_dcm):
         if dcm_file[:2] == "CT" and dcm_file[-7:] == "dcm.zst":            
             file_path = os.path.join(path_dcm, dcm_file)
-            ct_dict = dcm_to_dict(file_path, resolution=64)
+            ct_dict = dcm_to_dict(file_path, resolution=resolution)
             if ct_dict is None:
                 continue
             else:
@@ -285,32 +285,35 @@ def save_dcm_series(person_folder, dataset_path):
      
  
 if __name__ == "__main__":
-    dcm_path = "/ayb/vol3/datasets/pet-ct/DICOM_9801-10000.zip/"
-    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/train"
+    #part01 for validation
+    dcm_path = "/ayb/vol3/datasets/pet-ct/part02/"
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256/train"
     
-    # for i, person in enumerate(os.listdir(dcm_path)): 
-    #     person_folder = os.path.join(dcm_path, person)
-    #     #print(person_folder)
-    #     result = save_dcm_series(person_folder, dataset_path)
-    #     if result:
-    #         print(i, person)
-    #     else:
-    #         print(person)
-    #         # if i == 2:
-    #         #     break
+    i = 0
+    for person in os.listdir(dcm_path): 
+        person_folder = os.path.join(dcm_path, person)
+        #print(person_folder)
+        result = save_dcm_series(person_folder, dataset_path, resolution=256)
+        if result:
+            print(i, person)
+            i = i + 1
+        else:
+            print(person)
+            # if i == 2:
+            #     break
 
-    lung_dataset = LungsLabeled(dataset_path, terminate=10, resolution=4, load_memory=False, load_labels=False)
-    #ct, pi, label = lung_dataset.__getitem__(1000)
-    key = list(lung_dataset.person_index_dict.keys())[3]
-    index = lung_dataset.person_index_dict[key][1]
-    ct_pi = lung_dataset.__getitem__(index)
-    print(lung_dataset.person_label_dict[key])
-    plt.imshow(ct_pi[0,:,:], cmap=plt.cm.gray)
-    plt.show()
-    #print(label["slice"])
-    print("pi max", ct_pi.max())
-    plt.imshow(ct_pi[1,:,:], cmap=plt.cm.gray)
-    plt.show()
+    # lung_dataset = LungsLabeled(dataset_path, terminate=10, resolution=4, load_memory=False, load_labels=False)
+    # #ct, pi, label = lung_dataset.__getitem__(1000)
+    # key = list(lung_dataset.person_index_dict.keys())[3]
+    # index = lung_dataset.person_index_dict[key][1]
+    # ct_pi = lung_dataset.__getitem__(index)
+    # print(lung_dataset.person_label_dict[key])
+    # plt.imshow(ct_pi[0,:,:], cmap=plt.cm.gray)
+    # plt.show()
+    # #print(label["slice"])
+    # print("pi max", ct_pi.max())
+    # plt.imshow(ct_pi[1,:,:], cmap=plt.cm.gray)
+    # plt.show()
 
 
 

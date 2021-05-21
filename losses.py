@@ -37,7 +37,7 @@ def lasso(recon_x, x, lod=None, l1_coeff=0.1):
       return l1_coeff*torch.mean(torch.abs(recon_x - x)) + (1 - l1_coeff)*torch.mean((recon_x - x)**2)
 
 
-def reconstruction_pi_ct(recon_x, x, lod=None, mse=True):
+def reconstruction_pi_ct(recon_x, x, alpha=0.1):
     if x.ndim == 4 and x.shape[1] == 2:
         ct_reconstr = recon_x[:,0,:,:]
         ct = x[:,0,:,:]
@@ -50,7 +50,7 @@ def reconstruction_pi_ct(recon_x, x, lod=None, mse=True):
         pi_err = (pi_err.permute(1,2,0)*(1/max_x**2)).permute(2,0,1)
         pi_err = pi_err.mean()
         ct_mse = torch.mean((ct_reconstr - ct)**2)
-        return pi_err + ct_mse
+        return alpha*pi_err + (1-alpha)*ct_mse
     else:
         warnings.warn("Tensor should be of a size :,2,:,:")
         return None

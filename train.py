@@ -219,16 +219,16 @@ def validation_epoch(model, lungs_data_loader, current_lod):
 if __name__ == "__main__":
     dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/train"
     dataset_path_val = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/train"
-    resolution_power = 4
-    load_model_path = 'weights/weights_pi/pi8_5layers.pth'
-    save_model_path = 'weights/weights_pi/pi16_5layers.pth'
-    r1_gamma = 70
-    mse_penalty = 0.005
+    resolution_power = 6
+    load_model_path = 'weights/weights_pi/pi64_5layers.pth'
+    save_model_path = 'weights/weights_pi/pi64_5layers_2.pth'
+    r1_gamma = 60
+    mse_penalty = 0.06
     weight_decay = 0.001
     boundary = 0.0
     batch_size = 100
-    blending_step = 0.05    
-    lr = 0.0001
+    blending_step = None#0.04    
+    lr = 0.00005
 
     device = "cuda:2"
     print('resolution:', 2**resolution_power)
@@ -239,13 +239,13 @@ if __name__ == "__main__":
     print('encoder weight decay:', weight_decay)
     print('mse penalty:', mse_penalty)
 
-    lung_dataset = LungsLabeled(dataset_path, terminate=100, resolution=2**resolution_power, load_memory=True, load_labels=False)
+    lung_dataset = LungsLabeled(dataset_path, terminate=170, resolution=2**resolution_power, load_memory=True, load_labels=False)
     lung_dataset_val = LungsLabeled(dataset_path_val, terminate=10, resolution=2**resolution_power, load_memory=True, load_labels=False)
     print('train dataset size:', len(lung_dataset), 'validation:', len(lung_dataset_val))
-   
+  
     lungs_data_loader = DataLoader(dataset=lung_dataset, shuffle=True, batch_size=batch_size)
     lungs_data_loader_val = DataLoader(dataset=lung_dataset_val, shuffle=False, batch_size=batch_size)
-
+ 
     model = Model(channels=2, device=device, layer_count=5)
     model = model.to(device)
     if load_model_path:
@@ -290,7 +290,7 @@ if __name__ == "__main__":
                  loss['mse_rec'], psnr, ssim)#, loss['boundary'])         
         print(format_output)
 
-        if loss['mse_rec'] < 0.8 and epoch > 10: #0.03
+        if loss['mse_rec'] < 0.04 and epoch > 25: #0.03
             torch.save(model.state_dict(), save_model_path)
         
 

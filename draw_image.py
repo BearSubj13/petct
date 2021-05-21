@@ -18,11 +18,11 @@ def image_normalization(image):
     return image
 
 if __name__ == "__main__":
-    resolution_power = 4
+    resolution_power = 6
     dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/train"
     device = "cpu"# "cuda:2"
     generate_mode = False
-    model_path = 'weights/weights_pi/pi16_5layers.pth'
+    model_path = 'weights/weights_pi/pi64_5layers.pth'
 
     model = Model(channels=2, device=device, layer_count=5)
     model = model.to(device)
