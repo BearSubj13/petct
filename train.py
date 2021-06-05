@@ -9,7 +9,7 @@ import piq
 
 from losses import reconstruction, reconstruction_l1, lasso
 from model import Model
-
+from dataset_with_labels import LungsLabeled
 
 class CTDataset(Dataset):
     def __init__(self, dataset_path, resolution=None):
@@ -122,6 +122,8 @@ def train_epoch(model, lungs_data_loader, encoder_optimizer, discriminator_optim
         loss_latent_reconstruction_list.append(loss_latent_reconstruction.item())
         loss_image_reconstruction_list.append(loss_image_reconstruction.item())
         loss_g_reconst_list.append(loss_g_reconstr.item())
+        
+        #loss_latent_reconstruction.backward()
         reconstr_loss = lambda_reconstruct * loss_image_reconstruction
         reconstr_loss.backward()
         encoder_optimizer.step()
@@ -207,29 +209,30 @@ def validation_epoch(model, lungs_data_loader, current_lod):
             psnr = psnr_metric(image_tensor, image_reconstructed)
             psnr_list.append(psnr)
 
-            ssim = ssim_metric(image_tensor, image_reconstructed)
-            ssim_list.append(ssim)
+            #ssim = ssim_metric(image_tensor, image_reconstructed)
+            #ssim_list.append(ssim)
 
         psnr = sum(psnr_list) / len(psnr_list)
-        ssim = sum(ssim_list) / len(ssim_list)
+        ssim = 0#sum(ssim_list) / len(ssim_list)
     return psnr, ssim
 
 
 if __name__ == "__main__":
-    dataset_path = "/ayb/vol1/kruzhilov/lungs_images/"
-    dataset_path_val = "/ayb/vol1/kruzhilov/lungs_images_val/"
-    resolution_power = 6
-    load_model_path = 'weights/model64_5layers_2.pth'
-    save_model_path = 'weights/model64_5layers.pth'
-    r1_gamma = 70
-    mse_penalty = 0.1
-    weight_decay = 0.001
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256/train"
+    dataset_path_val = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256/train"
+    number_of_blocks = 6
+    resolution_power = 7
+    load_model_path = None#'weights/weights_ct256/model128_6layers.pth'
+    save_model_path = None#'weights/weights_ct256/model128_6layers_steps30plus.pth'
+    r1_gamma = 20
+    mse_penalty = 0.0
+    weight_decay = 0.0001
     boundary = 0.0
-    batch_size = 100
-    blending_step = None#0.04    
-    lr = 0.0001
+    batch_size = 120
+    blending_step = None#0.05    
+    lr = 0.00005
+    device = "cuda:3"
 
-    device = "cuda:2"
     print('resolution:', 2**resolution_power)
     print('loaded from:', load_model_path)
     print("batch size:", batch_size)
@@ -238,14 +241,16 @@ if __name__ == "__main__":
     print('encoder weight decay:', weight_decay)
     print('mse penalty:', mse_penalty)
 
-    lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
-    lung_dataset_val = CTDataset(dataset_path_val, resolution=2**resolution_power)
+    #lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
+    #lung_dataset_val = CTDataset(dataset_path_val, resolution=2**resolution_power)
+    lung_dataset = LungsLabeled(dataset_path, terminate=500, resolution=2**resolution_power, load_memory=False, load_labels=False)
+    lung_dataset_val = LungsLabeled(dataset_path, terminate=5, resolution=2**resolution_power, load_memory=True, load_labels=False)
     print('train dataset size:', len(lung_dataset), 'validation:', len(lung_dataset_val))
     #exit()
-    lungs_data_loader = DataLoader(dataset=lung_dataset, shuffle=True, batch_size=batch_size)
+    lungs_data_loader = DataLoader(dataset=lung_dataset, shuffle=True, batch_size=batch_size, num_workers=10)
     lungs_data_loader_val = DataLoader(dataset=lung_dataset_val, shuffle=False, batch_size=batch_size)
 
-    model = Model(channels=1, device=device, layer_count=5)
+    model = Model(channels=1, device=device, layer_count=number_of_blocks)
     model = model.to(device)
     if load_model_path:
         model.load_state_dict(torch.load(load_model_path, map_location=device))
@@ -271,7 +276,7 @@ if __name__ == "__main__":
 
     current_lod = resolution_power - 2
 
-    for epoch in range(500):
+    for epoch in range(120):
         if blending_step:
             current_blend_factor = min(1, 0.01 + epoch*blending_step)
         else:
@@ -289,7 +294,7 @@ if __name__ == "__main__":
                  loss['mse_rec'], psnr, ssim)#, loss['boundary'])         
         print(format_output)
 
-        if loss['mse_rec'] < 0.03 and epoch > 10:
+        if loss['mse_rec'] < 0.04 and epoch > 20:
             torch.save(model.state_dict(), save_model_path)
         
 

@@ -239,6 +239,7 @@ class ToRGB(nn.Module):
 
 
         # Default Encoder. E network
+
 #@ENCODERS.register("EncoderDefault")
 class EncoderDefault(nn.Module):
     def __init__(self, startf, maxf, layer_count, latent_size, channels=3):

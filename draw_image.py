@@ -4,8 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from model import Model
-from train import CTDataset, augmentation
-
+from dataset_with_labels import LungsLabeled
 
 def image_normalization(image):
     image[image < -0.05] = -0.05
@@ -17,13 +16,13 @@ def image_normalization(image):
     return image
 
 if __name__ == "__main__":
-    resolution_power = 6
-    dataset_path = "/ayb/vol1/kruzhilov/datasets/lungs_images_val"
+    resolution_power = 7
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256/train"
     device = "cpu"# "cuda:2"
     generate_mode = False
-    model_path = 'weights/model64_5layers.pth'
+    model_path = 'weights/weights_ct256/model128_6layers_steps30plus.pth'
 
-    model = Model(channels=1, device=device, layer_count=5)
+    model = Model(channels=1, device=device, layer_count=6)
     model = model.to(device)
     model.load_state_dict(torch.load(model_path, map_location=device)) #strict=False
     model.eval()
@@ -40,7 +39,7 @@ if __name__ == "__main__":
         plt.show()
         fig.savefig("generated.png", bbox_inches='tight')
     else:
-        lung_dataset = CTDataset(dataset_path, resolution=2**resolution_power)
+        lung_dataset = LungsLabeled(dataset_path, terminate=30, resolution=2**resolution_power, load_memory=False, load_labels=False)
         #print(len(lung_dataset))
         item = np.random.randint(len(lung_dataset))
         print(item)
@@ -58,16 +57,16 @@ if __name__ == "__main__":
         plt.axis('off') 
         plt.imshow(image, cmap=plt.cm.gray)
         plt.show()
-        fig.savefig("origina.png", bbox_inches='tight')
+        #fig.savefig("original.png", bbox_inches='tight')
 
         fig = plt.figure()
         plt.axis('off') 
         plt.imshow(image_gen, cmap=plt.cm.gray)
         plt.show()
-        fig.savefig("generated.png", bbox_inches='tight')
+        #fig.savefig("generated.png", bbox_inches='tight')
 
         error = np.abs(image - image_gen).mean()
         print("error:", error)
 
 
-        # %%
+            # %%
