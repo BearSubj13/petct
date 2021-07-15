@@ -218,7 +218,7 @@ def validation_epoch(model, lungs_data_loader, current_lod):
 
 
 if __name__ == "__main__":
-    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256/train"
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/labeled_lungs_description_256/train"
     dataset_path_val = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256/train"
     number_of_blocks = 6
     resolution_power = 7

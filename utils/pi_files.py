@@ -132,17 +132,17 @@ def interpolate_image(pi_list, slice_list, slice_interp):
     return image_interp
 
 if __name__ == "__main__":
-    person_folder = "/ayb/vol3/datasets/pet-ct/part01/990003766"
+    person_folder = "/ayb/vol3/datasets/pet-ct/part01/990003766/70004192"
     pi_list = read_pi_files(person_folder)
     slice_list = [x["slice"] for x in pi_list]
 
     k = 30
-    image0 = pi_list[k]["image"]
+    image0 = pi_list[k]["ct"]
     t0 = pi_list[k]["slice"]
-    image1 = pi_list[k + 1]["image"]
+    image1 = pi_list[k + 1]["ct"]
     t1 = pi_list[k + 1]["slice"]
     #an elegant way to resize image in numpy in a pooling way
-    image2 = pi_list[k + 2]["image"]
+    image2 = pi_list[k + 2]["ct"]
     t2 = pi_list[k + 2]["slice"]
 
     tinterp = -950

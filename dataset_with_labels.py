@@ -5,11 +5,11 @@ import json
 import warnings
 from tqdm import tqdm
 import copy
-from shlex import quote
+#from shlex import quote
 
 import matplotlib.pyplot as plt
 import pydicom
-from pydicom.data import get_testdata_file
+#from pydicom.data import get_testdata_file
 from pydicom.pixel_data_handlers.util import apply_modality_lut
 import zstandard as zstd
 from io import BytesIO
@@ -18,7 +18,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
-from create_dataset import normalization_window, lung_files
+from create_dataset import normalization_window #, lung_files
 from utils.pdf_extraction import extract_lungs_description, extract_lungs_from_txt
 from utils.pi_files import rescale_image, read_pi_files, interpolate_image
 
@@ -209,7 +209,7 @@ def save_dcm_series(person_folder, dataset_path, resolution=64):
     else:
         return None 
     path_dcm = os.path.join(person_folder, sub_dir)
-    file_number = 0
+    #file_number = 0
     ct_list = []
 
     lungs_description = extract_lungs_description(path_dcm)
@@ -390,40 +390,41 @@ def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_typ
  
 if __name__ == "__main__":
     #part01 for validation
-    dcm_path = "/ayb/vol3/datasets/pet-ct/audit/Ростов"
+    #dcm_path = "/ayb/vol3/datasets/pet-ct/audit/Ростов"
     #dcm_path = "/ayb/vol4/sftp/user23/upload/Ростов/"
-    #dcm_path = "/ayb/vol3/datasets/pet-ct/part0/"
+    dcm_path = "/ayb/vol3/datasets/pet-ct/part05/"
     #dcm_path = quote(dcm_path)
-    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_128/test"
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256"
     print(os.path.abspath(dcm_path) )
     #print(os.path.isdir(dcm_path))
     
-    resolution = 128
+    resolution = 256
 
-    # if not os.path.exists(dataset_path):
-    #     #rmtree(dataset_path)
-    #     os.mkdir(dataset_path)
-    # i = 0
-    # for person in os.listdir(dcm_path): 
-    #     person_folder = os.path.join(dcm_path, person)
-    #     #print(person_folder)
-    #     result = save_dcm_series_audit(person_folder, dataset_path, resolution=resolution,\
-    #     series_type="RECON 2: CT LUNG") # 1.25MM
-    #     if result:
-    #         print(i, person)
-    #         i = i + 1
-    #     else:
-    #         print(person)
+    if not os.path.exists(dataset_path):
+        #rmtree(dataset_path)
+        os.mkdir(dataset_path)
+    i = 0
+    for person in os.listdir(dcm_path): 
+        person_folder = os.path.join(dcm_path, person)
+        #print(person_folder)
+        #result = save_dcm_series_audit(person_folder, dataset_path, resolution=resolution,\
+        #series_type="RECON 2: CT LUNG") 
+        result = save_dcm_series(person_folder, dataset_path, resolution=resolution)
+        if result:
+            print(i, person)
+            i = i + 1
+        else:
+            print(person)
 
 
-    lung_dataset = LungsLabeled(dataset_path, terminate=50, resolution=128, load_memory=False, load_labels=False)
-    #ct, pi, label = lung_dataset.__getitem__(1000)
-    key = list(lung_dataset.person_index_dict.keys())[15]
-    index = lung_dataset.person_index_dict[key][50]
-    ct = lung_dataset.__getitem__(index)
-    print(lung_dataset.person_label_dict[key])
-    plt.imshow(ct[0,:,:], cmap=plt.cm.gray)
-    plt.show()
+    # lung_dataset = LungsLabeled(dataset_path, terminate=50, resolution=128, load_memory=False, load_labels=False)
+    # #ct, pi, label = lung_dataset.__getitem__(1000)
+    # key = list(lung_dataset.person_index_dict.keys())[15]
+    # index = lung_dataset.person_index_dict[key][50]
+    # ct = lung_dataset.__getitem__(index)
+    # print(lung_dataset.person_label_dict[key])
+    # plt.imshow(ct[0,:,:], cmap=plt.cm.gray)
+    # plt.show()
 
     # print(label["slice"])
     # print("pi max", ct_pi.max())

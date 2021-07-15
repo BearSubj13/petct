@@ -6,12 +6,14 @@ import random
 from shutil import rmtree
 
 import skimage.io as io
+import skimage
 import SimpleITK as sitk
 import matplotlib.pyplot as plt
 
 from scipy.ndimage import rotate
 from skimage.transform import resize
 from torch.utils.data import Dataset
+import torch
 
 
 def random_crop(img1, img2, crop_size=(10, 10)):
@@ -45,7 +47,10 @@ class Luna_heat_map_dataset(Dataset):
             for i in range(variable_dict["img"].shape[0]):
                 self.image.append(variable_dict["img"][i,:,:])
                 self.heatmap.append(variable_dict["heat_map"][i,:,:])
-                self.coordinates.append(variable_dict["xyr"][i])
+                coord = variable_dict["xyr"][i]
+                coord = np.array(coord)
+                coord = coord.reshape(np.prod(coord.shape))
+                self.coordinates.append(coord)
 
     def __getitem__(self, index):
         image = self.image[index]
@@ -58,13 +63,17 @@ class Luna_heat_map_dataset(Dataset):
             elif random_coin >= 0.25 and random_coin <= 0.5:
                image, heatmap = random_crop(image, heatmap, crop_size=(110, 110))
             elif random_coin > 0.5 and random_coin <= 0.65:
-                angle = 60 * (np.random.rand() - 1)
+                angle = 90 * (np.random.rand() - 1)
                 image = rotate(image, angle, reshape=False)
                 heatmap = rotate(heatmap, angle, reshape=False)
             image = image.copy()
             heatmap = heatmap.copy()
-
-        return image, heatmap #, self.coordinates[index]
+            return image, heatmap, torch.FloatTensor([0])
+        else:
+            coordinates = self.coordinates[index]
+            coordinates = coordinates.astype(np.float32)
+            coordinates = torch.FloatTensor(coordinates)
+            return image, heatmap, coordinates
 
     def __len__(self):
         return len(self.image)
@@ -152,14 +161,14 @@ def read_annotation(file_path):
 
 def radius_nodule(radius, z, spacing, downsize=1.0):
     radius_z =  0.5 * radius / spacing[0]
-    radius_z = math.floor(2.0*radius_z) + 1
+    radius_z = math.floor(1.3*radius_z) + 1
     radius_x = 0.5 * radius / spacing[1]
     radius_x_z_list = []
     for r_z in range(-radius_z, radius_z):
         cos_r_z = math.sqrt(1 - (r_z/radius_z)**2 )
         z_i = z + r_z
         radius_x_z = radius_x * cos_r_z / downsize
-        if radius_x_z >= 0.8:
+        if radius_x_z >= 0.6:
             radius_x_z_list.append((z_i, radius_x_z))
     return radius_x_z_list
 
@@ -170,10 +179,6 @@ def d2points_with_radius(person_nodules, origin, spacing, downsize=1.0):
     for nodule in person_nodules:
         world_coordinates = (nodule[2], nodule[1], nodule[0])
         voxel = world_2_voxel(world_coordinates, origin, spacing)
-        # x_original = voxel[2] / downsize
-        # y_original = voxel[1] / downsize
-        #z_original = voxel[0]
-        #original_coord_list.append((x_original, y_original, z_original))
         x = voxel[2] / downsize
         y = voxel[1] / downsize
         z = round(voxel[0])
@@ -190,9 +195,13 @@ def d2points_with_radius(person_nodules, origin, spacing, downsize=1.0):
     return z_dict #, original_coord_list
 
 
-def gaussian_projection(z_i_list, image_size=128):
+def gaussian_projection(z_i_list, image_size=128, radius_coeff=1.0):
     image = np.zeros([image_size, image_size])
     for x, y, r in z_i_list:
+        if r < 2.5:
+            r = 2.5
+        r = 5.0 if r > 5.0 else r
+        r = radius_coeff * r #to increase the area of a heatmap
         x_begin = round(x - 3*r)
         x_end = round(x + 3*r)
         y_begin = round(y - 3*r)
@@ -219,7 +228,7 @@ def tensor_for_person(file_path, human_id, nodule_dict, downsize=1):
     heat_map = np.zeros([z_numpy.shape[0], image_size, image_size])
     x_y_r_list = []
     for i, z in enumerate(z_numpy):
-        heat_map[i,:,:] = gaussian_projection(z_dict[z], image_size=128)
+        heat_map[i,:,:] = gaussian_projection(z_dict[z], image_size=image_size, radius_coeff=1.1)
         x_y_r_list.append(z_dict[z])
     img = img[z_numpy, :,:]
     img = img[:, 0:512:downsize, 0:512:downsize]
@@ -230,42 +239,94 @@ def tensor_for_person(file_path, human_id, nodule_dict, downsize=1):
     assert img.shape == heat_map.shape
     return img, heat_map, x_y_r_list
 
+
+def find_stars(heatmap, threshold=0.1):
+    heatmap[heatmap < threshold] = 0
+    image_size = heatmap.shape[0]
+    heatmap_nonempty = heatmap.copy()
+    heatmap_nonempty[heatmap_nonempty > threshold] = 1
+    blobs = skimage.measure.label(heatmap_nonempty, return_num=False)
+    number_of_blobs = blobs.max()
+    xyr = np.zeros([number_of_blobs, 3])
+    for i in range(1, number_of_blobs+1):
+        mask = blobs == i
+        coordinates = np.where(mask)
+        energy = heatmap[coordinates[0], coordinates[1]]
+        energy_mass = energy.sum()
+        y_engergy = (energy * coordinates[0]).sum()
+        x_engergy = (energy * coordinates[1]).sum()
+        x_estim = y_engergy / energy_mass
+        y_estim = x_engergy / energy_mass
+        xy_repeat = np.repeat(np.array([[x_estim, y_estim]]), repeats=energy.shape[0], axis=0)
+        xy_repeat = xy_repeat.transpose()
+        coordinates = np.vstack(coordinates)
+        distorsion = (energy/energy_mass)*(xy_repeat - coordinates)**2
+        r = np.sqrt(distorsion.sum())
+        xyr[i-1, 0] = y_estim
+        xyr[i-1, 1] = x_estim
+        xyr[i-1, 2] = r
+    return xyr
+
+
+def coordinates_metrics(xy_estim, xyr_gt, efficient_radius=1.0):
+    pair_list = []
+    mean_err = []
+    for i in range(xyr_gt.shape[0]):
+        r = xyr_gt[i,2]
+        xy = xyr_gt[i,:2]
+        for j in range(xy_estim.shape[0]):
+            d = np.linalg.norm(xy - xy_estim[j,:2])
+            if d < efficient_radius * r:
+                pair_list.append((i,j))
+                mean_err.append(d)
+                break
+
+    recall = len(pair_list) / xyr_gt.shape[0]
+    if xy_estim.shape[0] == 0:
+        precision = None
+    else:
+        precision = len(pair_list) / xy_estim.shape[0]
+    if len(mean_err) > 0:
+        mean_err = sum(mean_err) / len(mean_err)
+    else:
+        mean_err = None
+    return precision, recall, mean_err
+
       
 if __name__ == "__main__":
     file_path = "/ayb/vol2/datasets/LUNA16/data/"
-    save_path = "/ayb/vol1/kruzhilov/datasets/luna16_heatmap/resolution128"
+    save_path = "/ayb/vol1/kruzhilov/datasets/luna16_heatmap/resolution256_largeheatmap"
 
-    train_dataset, val_dataset = train_val_split_luna(save_path, val_rate=0.1)
-    print("train len:", len(train_dataset), ", val len:", len(val_dataset))
+    # train_dataset, val_dataset = train_val_split_luna(save_path, val_rate=0.1)
+    # print("train len:", len(train_dataset), ", val len:", len(val_dataset))
     
-    k = 500
-    print(k)
-    image, heat_map, xyr = train_dataset.__getitem__(k)
-    fig, ax = plt.subplots()
-    plt.imshow(image, cmap=plt.cm.gray)
-    for x, y, r in xyr:
-        circle = plt.Circle((x, y), 1.3*r, color='r', fill=False)
-        ax.add_artist(circle)
-    plt.show()
-    plt.imshow(heat_map, cmap=plt.cm.gray)
-    plt.show()
+    # k = 500
+    # print(k)
+    # image, heat_map, xyr = train_dataset.__getitem__(k)
+    # fig, ax = plt.subplots()
+    # plt.imshow(image, cmap=plt.cm.gray)
+    # for x, y, r in xyr:
+    #     circle = plt.Circle((x, y), 1.3*r, color='r', fill=False)
+    #     ax.add_artist(circle)
+    # plt.show()
+    # plt.imshow(heat_map, cmap=plt.cm.gray)
+    # plt.show()
 
+    if os.path.exists(save_path):
+        rmtree(save_path)
+    os.mkdir(save_path)
 
-    # if os.path.exists(save_path):
-    #     rmtree(save_path)
-    # os.mkdir(save_path)
+    nodule_dict = read_annotation(file_path="/ayb/vol2/datasets/LUNA16/CSVFILES/annotations.csv")
 
-    # nodule_dict = read_annotation(file_path="/ayb/vol2/datasets/LUNA16/CSVFILES/annotations.csv")
-
-    # for i, human_id in enumerate(nodule_dict.keys()):
-    #     img, heat_maps, x_y_r_list = tensor_for_person(file_path, human_id, nodule_dict, downsize=4)
-    #     file_to_save = human_id + ".npz"
-    #     file_to_save = os.path.join(save_path, file_to_save)
-    #     x_y_r_list = np.array(x_y_r_list, dtype=object)
-    #     if img is not None and heat_maps is not None:
-    #         np.savez(file_to_save, img=img, heat_map=heat_maps, xyr=x_y_r_list)
-    #     # if i == 30:
-    #     #     break
+    for i, human_id in enumerate(nodule_dict.keys()):
+        img, heat_maps, x_y_r_list = tensor_for_person(file_path, human_id, nodule_dict, downsize=2)
+        file_to_save = human_id + ".npz"
+        file_to_save = os.path.join(save_path, file_to_save)
+        x_y_r_list = np.array(x_y_r_list, dtype=object)
+        if img is not None and heat_maps is not None:
+            np.savez(file_to_save, img=img, heat_map=heat_maps, xyr=x_y_r_list)
+        # if i == 50:
+        #     break
 
         
     # fl = False #i==20, 32 - None

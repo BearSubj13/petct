@@ -6,6 +6,7 @@ import numpy as np
 from model import Model
 from dataset_with_labels import LungsLabeled
 
+
 def image_normalization(image):
     image[image < -0.05] = -0.05
     image[image > 1.05] = 1.05
@@ -18,6 +19,7 @@ def image_normalization(image):
 if __name__ == "__main__":
     resolution_power = 7
     dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256/train"
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/labeled_lungs_description_128/test"
     device = "cpu"# "cuda:2"
     generate_mode = False
     model_path = 'weights/weights_ct256/model128_6layers_steps30plus.pth'
