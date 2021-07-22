@@ -240,7 +240,7 @@ def tensor_for_person(file_path, human_id, nodule_dict, downsize=1):
     return img, heat_map, x_y_r_list
 
 
-def find_stars(heatmap, threshold=0.1):
+def find_stars(heatmap, threshold=0.1, min_energy_mass=1.0):
     heatmap[heatmap < threshold] = 0
     image_size = heatmap.shape[0]
     heatmap_nonempty = heatmap.copy()
@@ -248,11 +248,14 @@ def find_stars(heatmap, threshold=0.1):
     blobs = skimage.measure.label(heatmap_nonempty, return_num=False)
     number_of_blobs = blobs.max()
     xyr = np.zeros([number_of_blobs, 3])
+    k = 0
     for i in range(1, number_of_blobs+1):
         mask = blobs == i
         coordinates = np.where(mask)
         energy = heatmap[coordinates[0], coordinates[1]]
         energy_mass = energy.sum()
+        if energy_mass < min_energy_mass:
+            continue
         y_engergy = (energy * coordinates[0]).sum()
         x_engergy = (energy * coordinates[1]).sum()
         x_estim = y_engergy / energy_mass
@@ -262,9 +265,11 @@ def find_stars(heatmap, threshold=0.1):
         coordinates = np.vstack(coordinates)
         distorsion = (energy/energy_mass)*(xy_repeat - coordinates)**2
         r = np.sqrt(distorsion.sum())
-        xyr[i-1, 0] = y_estim
-        xyr[i-1, 1] = x_estim
-        xyr[i-1, 2] = r
+        xyr[k, 0] = y_estim
+        xyr[k, 1] = x_estim
+        xyr[k, 2] = r
+        k = k + 1
+    xyr = xyr[:k, :]
     return xyr
 
 

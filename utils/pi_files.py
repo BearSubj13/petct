@@ -107,21 +107,26 @@ def rescale_image(image,  output_size=128):
 
 
 def interpolate_image(pi_list, slice_list, slice_interp):
+    keys = pi_list[0].keys()
+    if "image" in keys:
+       key = "image"
+    else:
+       key = "ct"
     if slice_interp < pi_list[0]["slice"]:
-        return pi_list[0]["image"]    
+        return pi_list[0][key]    
     if slice_interp > pi_list[-1]["slice"]:
-        return pi_list[-1]["image"]
+        return pi_list[-1][key]
     #assert slice_interp >= pi_list[0]["slice"]
     #assert slice_interp <= pi_list[-1]["slice"]
     i_left = find_le(slice_list, slice_interp)
     i_right = find_ge(slice_list, slice_interp)
     if i_left == i_right:
-        return pi_list[i_left]["image"]
+        return pi_list[i_left][key]
     
     slice_left = pi_list[i_left]["slice"]
     slice_right = pi_list[i_right]["slice"]
-    image_left = pi_list[i_left]["image"]
-    image_right = pi_list[i_right]["image"]
+    image_left = pi_list[i_left][key]
+    image_right = pi_list[i_right][key]
 
     d = slice_right - slice_left
     if d != 0:

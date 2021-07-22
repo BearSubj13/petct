@@ -157,7 +157,7 @@ if __name__ == "__main__":
         sub_dir = os.listdir(path_dcm)[0]
         path_dcm = os.path.join(path_dcm, sub_dir)
         for file_name in os.listdir(path_dcm):
-            if file_name[:2] == "PI":
+            if file_name[:2] == "CT":
                 test_dcm(path_dcm, file_name)
             
 

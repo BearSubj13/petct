@@ -335,7 +335,7 @@ def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_typ
         print("empty list:", path_dcm)
         return None
 
-    if pi_list is None:
+    if pi_list is None or pi_list == []:
        print("No PI images in the study")
        return None
 
@@ -390,11 +390,11 @@ def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_typ
  
 if __name__ == "__main__":
     #part01 for validation
-    #dcm_path = "/ayb/vol3/datasets/pet-ct/audit/Ростов"
+    dcm_path = "/ayb/vol3/datasets/pet-ct/audit/ПЭТ-Технолоджи_Екатеринбург"
     #dcm_path = "/ayb/vol4/sftp/user23/upload/Ростов/"
-    dcm_path = "/ayb/vol3/datasets/pet-ct/part05/"
+    #dcm_path = "/ayb/vol3/datasets/pet-ct/part05/"
     #dcm_path = quote(dcm_path)
-    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description_256"
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/labeled_lungs_description_256/ekaburg"
     print(os.path.abspath(dcm_path) )
     #print(os.path.isdir(dcm_path))
     
@@ -409,7 +409,7 @@ if __name__ == "__main__":
         #print(person_folder)
         #result = save_dcm_series_audit(person_folder, dataset_path, resolution=resolution,\
         #series_type="RECON 2: CT LUNG") 
-        result = save_dcm_series(person_folder, dataset_path, resolution=resolution)
+        result = save_dcm_series_audit(person_folder, dataset_path, resolution=resolution)
         if result:
             print(i, person)
             i = i + 1
