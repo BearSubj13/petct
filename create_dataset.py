@@ -1,6 +1,7 @@
 
 #%%
 import os
+import numpy as np
 import pydicom
 from pydicom.data import get_testdata_file
 from pydicom.pixel_data_handlers.util import apply_modality_lut
@@ -26,25 +27,30 @@ def lung_files(folder_path):
     return files_list
 
 
-def normalization_window(image, ds):
-    if "WindowCenter" in ds and "WindowWidth" in ds:
-        window_center = ds["WindowCenter"].value
-        window_width = ds["WindowWidth"].value
-        #print(window_center, window_width)
+def normalization_window(image, ds, window_center=-600, window_width=1500):
+    if ds is not None:
+        if "WindowCenter" in ds and "WindowWidth" in ds:
+            window_center = ds["WindowCenter"].value
+            window_width = ds["WindowWidth"].value
 
-        image_min = window_center - window_width / 2
-        image_max = window_center + window_width / 2
+    image_min = window_center - window_width / 2
+    image_max = window_center + window_width / 2
 
-        image[image < image_min] = image_min
-        image[image > image_max] = image_max
+    image = np.minimum(image, image_max)
+    image = np.maximum(image, image_min)
+    # image[image < image_min] = image_min
+    # image[image > image_max] = image_max
 
-        return image
+    return image
 
 
-def image_normalization(ds):
+def image_normalization(ds, window_center=None, window_width=None):
     arr = ds.pixel_array
     hu = apply_modality_lut(arr, ds)
-    arr = normalization_window(hu, ds)
+    if window_center is not None and window_width is not None:
+        arr = normalization_window(hu, None, window_center=window_center, window_width=window_width)
+    else:
+        arr = normalization_window(hu, ds)
     hu = tr.FloatTensor(hu)
     if hu.max() - hu.min() == 0:
         return None

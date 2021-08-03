@@ -4,11 +4,16 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+piq = "*"
+matplotlib = "*"
 pydicom = "*"
 zstandard = "*"
-matplotlib = "*"
-ipykernel = "*"
-torch = "*"
+scikit-learn = "*"
+tqdm = "*"
+pdf2image = "*"
+pytesseract = "*"
+scikit-image = "*"
+albumentations = "*"
 
 [dev-packages]
 

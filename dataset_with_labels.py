@@ -1,4 +1,6 @@
 #%%
+# constants for the Hubert normalization https://radiopaedia.org/articles/windowing-ct
+#"CTAC 3.75 Thick" и "WB 3D MAC" coinsedes, 'CTAC 3.75 mm' - Балашиха
 import os
 from shutil import rmtree
 import json
@@ -121,17 +123,16 @@ class LungsLabeled(Dataset):
             #pi = self.pi_file_list[index]
         else:
             ct = torch.load(self.ct_file_list[index])
-            #pi = torch.load(self.pi_file_list[index])
+            pi = torch.load(self.pi_file_list[index])
             ct = rescale_image(ct, output_size=self.resolution)
-            #pi = rescale_image(pi, output_size=self.resolution)
+            pi = rescale_image(pi, output_size=self.resolution)
         ct = ct.unsqueeze(0)
-        #pi = pi.unsqueeze(0) / 16000
+        pi = pi.unsqueeze(0)
         #ct_pi = torch.cat([ct, pi], dim=0)
-        return ct#, pi, label
+        return ct, pi, # label
 
 
-
-def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True):
+def dcm_to_dict(file_path, verbose=True):
     zd = zstd.ZstdDecompressor()
     compressed = open(file_path, "rb").read()
     try:
@@ -145,33 +146,12 @@ def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True):
             print("error in reading", file_path)
         return None 
 
-    #print(ds.SeriesDescription)
-    if only_lungs and 'LUNG' not in ds.SeriesDescription.upper():
-        return None
-    #print(ds.SeriesDescription)
-
     arr = ds.get('pixel_array', None)#ds.pixel_array
+    #print(ds["SeriesDescription"], ds["PixelSpacing"])
     if arr is None:
         if verbose:
             print("No image in", file_path)
-        return None
-    
-    arr = ds.pixel_array
-    hu = apply_modality_lut(arr, ds)
-    arr = normalization_window(hu, ds)
-    hu = torch.FloatTensor(hu)
-    if hu.max() - hu.min() == 0:
-        return None
-    hu = (hu - hu.min()) / (hu.max() - hu.min())
-    
-    if resolution != 512:
-        image_tensor = hu
-        image_tensor = image_tensor.unsqueeze(0)#.unsqueeze(0)
-        image_tensor = F.interpolate(image_tensor, size=resolution)
-        image_tensor = image_tensor.permute(0, 2, 1)
-        image_tensor = F.interpolate(image_tensor, size=resolution) 
-        image_tensor = image_tensor.permute(0, 2, 1)
-        image_tensor = image_tensor.squeeze()
+        return None     
 
     slice_loc = ds.get('SliceLocation', None)
     sex = ds.get('PatientSex', None)
@@ -183,17 +163,109 @@ def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True):
     age = ds.get('PatientAge', None)
     age = int(age[:-1])
     modality = ds.get('Modality', None)
+    if modality is None:
+        print("No modality in:", file_path)
+        return None
+
     series_descrip = ds.SeriesDescription.upper()
     if slice_loc is None:
-        print("No slice in", file_path)
+        print("No slice in:", file_path)
         return None
     else:
         slice_loc = float(slice_loc)
 
-    return_dict = {"slice":slice_loc, "ct":image_tensor, "sex":sex, "weight":weight, \
+    if modality == "CT":
+        arr = apply_modality_lut(arr, ds)
+
+    return_dict = {"slice":slice_loc, "ct":arr, "sex":sex, "weight":weight, \
                     "length":length, "id":patient_id, "age":age, "position":None, \
                     "file":file_path, "modality":modality, "series":series_descrip}
     return return_dict
+
+
+def crop_resize_image(image, coeff, resolution):
+    if coeff == 1.0:
+        return image
+    image_size = image.shape[0]
+    new_size = round(image_size / coeff)
+    center_x = image_size // 2 + 15
+    center_y = image_size // 2 
+    start_x = center_x - new_size // 2 
+    start_y = center_y - new_size // 2
+    end_x = center_x + new_size // 2
+    end_y = center_y + new_size // 2
+    croped_image = image[start_x:end_x, start_y:end_y]
+    croped_image = torch.FloatTensor(croped_image).unsqueeze(0).unsqueeze(0)
+    croped_image = F.interpolate(croped_image, size=(resolution,resolution) )
+    croped_image = croped_image.squeeze(0).squeeze(0)
+    return croped_image
+
+
+# def dcm_to_dict(file_path, resolution=64, verbose=True, only_lungs=True, normalize=True):
+#     zd = zstd.ZstdDecompressor()
+#     compressed = open(file_path, "rb").read()
+#     try:
+#         if file_path[-3:] == "zst":
+#             data = zd.decompress(compressed)
+#             ds = pydicom.dcmread(BytesIO(data))
+#         elif file_path[-3:] == "dcm":
+#             ds = pydicom.dcmread(file_path)
+#     except:
+#         if verbose:
+#             print("error in reading", file_path)
+#         return None 
+
+#     #print(ds.SeriesDescription)
+#     if only_lungs and 'LUNG' not in ds.SeriesDescription.upper():
+#         return None
+#     #print(ds.SeriesDescription)
+
+#     arr = ds.get('pixel_array', None)#ds.pixel_array
+#     if arr is None:
+#         if verbose:
+#             print("No image in", file_path)
+#         return None
+    
+#     arr = ds.pixel_array
+#     hu = apply_modality_lut(arr, ds)
+#     #window_center=30, window_width=150 for the liver
+#     arr = normalization_window(hu, ds=None)
+#     hu = torch.FloatTensor(arr)
+#     if hu.max() - hu.min() == 0:
+#         return None
+#     if normalize:
+#         hu = (hu - hu.min()) / (hu.max() - hu.min())
+     
+#     if resolution != 512:
+#         image_tensor = hu
+#         image_tensor = image_tensor.unsqueeze(0)#.unsqueeze(0)
+#         image_tensor = F.interpolate(image_tensor, size=resolution)
+#         image_tensor = image_tensor.permute(0, 2, 1)
+#         image_tensor = F.interpolate(image_tensor, size=resolution) 
+#         image_tensor = image_tensor.permute(0, 2, 1)
+#         image_tensor = image_tensor.squeeze()
+
+#     slice_loc = ds.get('SliceLocation', None)
+#     sex = ds.get('PatientSex', None)
+#     weight = ds.get('PatientWeight', None)
+#     weight = float(weight)
+#     length = ds.get('PatientSize', None)
+#     length = float(length)
+#     patient_id = ds.get('PatientID', None)
+#     age = ds.get('PatientAge', None)
+#     age = int(age[:-1])
+#     modality = ds.get('Modality', None)
+#     series_descrip = ds.SeriesDescription.upper()
+#     if slice_loc is None:
+#         print("No slice in", file_path)
+#         return None
+#     else:
+#         slice_loc = float(slice_loc)
+
+#     return_dict = {"slice":slice_loc, "ct":image_tensor, "sex":sex, "weight":weight, \
+#                     "length":length, "id":patient_id, "age":age, "position":None, \
+#                     "file":file_path, "modality":modality, "series":series_descrip}
+#     return return_dict
 
 
 def save_dcm_series(person_folder, dataset_path, resolution=64):
@@ -251,7 +323,7 @@ def save_dcm_series(person_folder, dataset_path, resolution=64):
         pi_interp = rescale_image(pi_interp, output_size=ct_element["ct"].shape[0])
         pi_interp = torch.FloatTensor(pi_interp)
         ct_element.update({"pi":pi_interp})
-
+   
     #create folders to save files
     person_folder = os.path.join(dataset_path, ct_list[0]["id"])
     if os.path.exists(person_folder):
@@ -291,7 +363,7 @@ def save_dcm_series(person_folder, dataset_path, resolution=64):
     return True
 
 
-def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_type="LUNG"):
+def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_type="LUNG", pt_serie="MAC"):
     sub_dir = "DICOM"
     path_dcm = os.path.join(person_folder, sub_dir)
     if not os.path.isdir(path_dcm):
@@ -299,6 +371,7 @@ def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_typ
         return None
     ct_list = []
     pi_list = []
+    series_list = [] #DELETEME
 
     description_path = os.path.join(person_folder, "заключение.txt")
     if not os.path.isfile(description_path):
@@ -311,17 +384,26 @@ def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_typ
     for dcm_file in os.listdir(path_dcm):
         if dcm_file[-3:] == "dcm":   
             file_path = os.path.join(path_dcm, dcm_file)
-            pict_dict = dcm_to_dict(file_path, resolution=resolution, only_lungs=False)
+            pict_dict = dcm_to_dict(file_path)
             if pict_dict is None:
                 continue
             else:
-                if pict_dict["modality"] == "CT":
-                    #print(pict_dict["series"])
-                    if series_type in pict_dict["series"].upper():
+                series_list.append(pict_dict["series"]) #DELETEME
+                if pict_dict["modality"] == "CT" and series_type == pict_dict["series"]:
+                    if pict_dict["ct"].shape[0] == 512:
                         ct_list.append(pict_dict)
-                elif pict_dict["modality"] == "PT":
+                elif pict_dict["modality"] == "PT" and pt_serie == pict_dict["series"]:
                     pi_list.append(pict_dict)
 
+    for ct in ct_list:
+        window_center = -600.0
+        window_width = 1500.0
+        ct["ct"] = rescale_image(ct["ct"], output_size=resolution)
+        ct["ct"] = normalization_window(ct["ct"], ds=None, window_center=window_center, window_width=window_width)
+        ct["ct"] = (ct["ct"] - window_center + window_width / 2) / window_width
+        ct["ct"] = torch.FloatTensor(ct["ct"])
+    #series_list = list(set(series_list))
+    #print(series_list)
     #normalize slice from 0 to 1
     if len(ct_list) > 0:
         min_slice = min(ct_list, key=lambda x: x["slice"] )["slice"]
@@ -339,12 +421,18 @@ def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_typ
        print("No PI images in the study")
        return None
 
+    for pi in pi_list:
+        pi["ct"] = rescale_image(pi["ct"], output_size=resolution)
+        pi["ct"] = torch.FloatTensor(pi["ct"])
+    pi_list = sorted(pi_list, key=lambda x: x["slice"])
     slice_list = [x["slice"] for x in pi_list]
     for ct_element in ct_list:
         slice_location = ct_element["slice"]
         pi_interp = interpolate_image(pi_list, slice_list, slice_location)
-        pi_interp = rescale_image(pi_interp, output_size=ct_element["ct"].shape[0])
-        pi_interp = torch.FloatTensor(pi_interp)
+        coeff_resize = 1.569506276016136#1.694914466286737
+        pi_interp = crop_resize_image(pi_interp, coeff=coeff_resize, resolution=resolution)
+        #pi_interp = rescale_image(pi_interp, output_size=ct_element["ct"].shape[0])
+        #pi_interp = torch.FloatTensor(pi_interp)
         ct_element.update({"pi":pi_interp})
 
     #create folders to save files
@@ -387,14 +475,51 @@ def save_dcm_series_audit(person_folder, dataset_path, resolution=64, series_typ
     #files successfully saved
     return True
 
- 
+
+def find_series(person_folder): 
+    sub_dir = "DICOM"
+    path_dcm = os.path.join(person_folder, sub_dir)
+    if not os.path.isdir(path_dcm):
+        warnings.warn("the folder does not exist: "+path_dcm)
+        return None
+    ct_series_dict = dict() 
+    pt_series_dict = dict() 
+
+    for dcm_file in os.listdir(path_dcm):
+        if dcm_file[-3:] == "dcm":   
+            file_path = os.path.join(path_dcm, dcm_file)
+            pict_dict = dcm_to_dict(file_path)
+            if pict_dict is None:
+                continue
+    
+            serie = pict_dict["series"] 
+            if pict_dict["modality"] == "CT":
+                if serie in ct_series_dict.keys():
+                    ct_series_dict[serie].append(pict_dict["slice"]) 
+                else:
+                    ct_series_dict.update({serie:[pict_dict["slice"]]})
+            elif pict_dict["modality"] == "PT":
+                if serie in pt_series_dict.keys():
+                    pt_series_dict[serie].append(pict_dict["slice"]) 
+                else:
+                    pt_series_dict.update({serie:[pict_dict["slice"]]})
+
+    for key in ct_series_dict:
+        ct_series_dict[key] = sorted(ct_series_dict[key])
+    for key in pt_series_dict:
+        pt_series_dict[key] = sorted(pt_series_dict[key])
+
+    return ct_series_dict
+                
+
+
 if __name__ == "__main__":
     #part01 for validation
-    dcm_path = "/ayb/vol3/datasets/pet-ct/audit/ПЭТ-Технолоджи_Екатеринбург"
+    dcm_path = "/ayb/vol3/datasets/pet-ct/audit/ПЭТ-Технолоджи_Курск"
     #dcm_path = "/ayb/vol4/sftp/user23/upload/Ростов/"
-    #dcm_path = "/ayb/vol3/datasets/pet-ct/part05/"
+    #dcm_path = "/ayb/vol3/datasets/pet-ct/part01/"
     #dcm_path = quote(dcm_path)
-    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/labeled_lungs_description_256/ekaburg"
+    dataset_path = "/ayb/vol1/kruzhilov/datasets/labeled_lungs_description/labeled_lungs_description_256/deleteme"
     print(os.path.abspath(dcm_path) )
     #print(os.path.isdir(dcm_path))
     
@@ -409,10 +534,12 @@ if __name__ == "__main__":
         #print(person_folder)
         #result = save_dcm_series_audit(person_folder, dataset_path, resolution=resolution,\
         #series_type="RECON 2: CT LUNG") 
-        result = save_dcm_series_audit(person_folder, dataset_path, resolution=resolution)
+        #find_series(person_folder)
+        result = save_dcm_series_audit(person_folder, dataset_path, resolution=resolution, series_type="LUNGS 1.25MM", pt_serie="3D MAC") #CTAC 5 MM THICK, MAC STANDART, LUNG 5 MM
         if result:
             print(i, person)
             i = i + 1
+            break
         else:
             print(person)
 

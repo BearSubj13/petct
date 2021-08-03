@@ -62,7 +62,7 @@ def read_pi_files(person_folder, verbose=True):
             ds = pydicom.dcmread(BytesIO(data))
         except:
             if verbose:
-                print("error in reading", file_path)
+                print("error in reading pi file", file_path)
             return None 
 
         arr = ds.get('pixel_array', None) 
